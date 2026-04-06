@@ -62,7 +62,9 @@ export async function handleCatalogCommand(ctx: MinimalContext, deps: BotDeps, p
   const text = items.length
     ? "Выберите цвет из каталога:"
     : "Каталог пока пуст. Сначала импортируйте PDF через import-catalog.";
-  const keyboard = items.length ? catalogKeyboard(items, page, totalPages) : undefined;
+  const keyboard = items.length
+    ? catalogKeyboard(items, page, totalPages, (item) => deps.catalog.pickKeyForId(item.id) ?? item.id)
+    : undefined;
 
   if (!ctx.callbackQuery || !ctx.editMessageText) {
     await ctx.reply(text, keyboard);
@@ -127,7 +129,10 @@ export async function handleTextMessage(ctx: MinimalContext, deps: BotDeps): Pro
     return;
   }
 
-  await ctx.reply("Нашел такие цвета:", searchResultsKeyboard(matches));
+  await ctx.reply(
+    "Нашел такие цвета:",
+    searchResultsKeyboard(matches, (item) => deps.catalog.pickKeyForId(item.id) ?? item.id)
+  );
 }
 
 export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): Promise<void> {
@@ -161,8 +166,8 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
     return;
   }
   if (data.startsWith("pick:")) {
-    const colorId = data.slice("pick:".length);
-    const color = deps.catalog.getById(colorId);
+    const pickKey = data.slice("pick:".length);
+    const color = deps.catalog.getByPickKey(pickKey) ?? deps.catalog.getById(pickKey);
     if (!color) {
       await ctx.answerCbQuery?.("Цвет не найден");
       return;

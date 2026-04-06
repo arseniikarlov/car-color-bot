@@ -4,10 +4,21 @@ import { normalizeSearchText } from "./catalogUtils.js";
 export class CatalogIndex {
   private readonly items: CatalogColor[];
   private readonly itemsById: Map<string, CatalogColor>;
+  private readonly pickKeyById: Map<string, string>;
+  private readonly itemsByPickKey: Map<string, CatalogColor>;
 
   constructor(items: CatalogColor[]) {
     this.items = [...items];
     this.itemsById = new Map(items.map((item) => [item.id, item]));
+    this.pickKeyById = new Map();
+    this.itemsByPickKey = new Map();
+
+    for (let index = 0; index < this.items.length; index += 1) {
+      const item = this.items[index]!;
+      const key = index.toString(36);
+      this.pickKeyById.set(item.id, key);
+      this.itemsByPickKey.set(key, item);
+    }
   }
 
   total(): number {
@@ -26,6 +37,14 @@ export class CatalogIndex {
 
   getById(id: string): CatalogColor | null {
     return this.itemsById.get(id) ?? null;
+  }
+
+  pickKeyForId(id: string): string | null {
+    return this.pickKeyById.get(id) ?? null;
+  }
+
+  getByPickKey(key: string): CatalogColor | null {
+    return this.itemsByPickKey.get(key) ?? null;
   }
 
   search(query: string, limit = 10): CatalogColor[] {

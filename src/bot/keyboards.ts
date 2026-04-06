@@ -6,9 +6,14 @@ export function mainMenuKeyboard() {
   return Markup.keyboard([["Выбрать цвет", "Поиск"], ["Сбросить"]]).resize();
 }
 
-export function catalogKeyboard(items: CatalogColor[], page: number, totalPages: number) {
+export function catalogKeyboard(
+  items: CatalogColor[],
+  page: number,
+  totalPages: number,
+  pickKeyForColor: (item: CatalogColor) => string
+) {
   const rows = items.map((item) => [
-    Markup.button.callback(`${item.code} · ${item.name}`, `pick:${item.id}`)
+    Markup.button.callback(`${item.code} · ${item.name}`, `pick:${pickKeyForColor(item)}`)
   ]);
 
   const navRow: Array<ReturnType<typeof Markup.button.callback>> = [];
@@ -26,9 +31,12 @@ export function catalogKeyboard(items: CatalogColor[], page: number, totalPages:
   return Markup.inlineKeyboard(rows);
 }
 
-export function searchResultsKeyboard(items: CatalogColor[]) {
+export function searchResultsKeyboard(
+  items: CatalogColor[],
+  pickKeyForColor: (item: CatalogColor) => string
+) {
   const rows = items.map((item) => [
-    Markup.button.callback(`${item.code} · ${item.name}`, `pick:${item.id}`)
+    Markup.button.callback(`${item.code} · ${item.name}`, `pick:${pickKeyForColor(item)}`)
   ]);
   return Markup.inlineKeyboard(rows);
 }

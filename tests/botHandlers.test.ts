@@ -105,9 +105,10 @@ describe("bot handlers", () => {
     };
     const deps = { catalog, stateStore: store as any, openai, maxInputImageMb: 10 };
     const firstColor = catalog.listPage(0, 10)[0]!;
+    const firstColorPickKey = catalog.pickKeyForId(firstColor.id)!;
 
     const { ctx, replies } = createCtx({
-      callbackQuery: { data: `pick:${firstColor.id}` },
+      callbackQuery: { data: `pick:${firstColorPickKey}` },
       message: {
         photo: [{ file_id: "f1", file_size: 1_000 }]
       }
