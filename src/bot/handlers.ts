@@ -52,7 +52,13 @@ export async function handleStart(ctx: MinimalContext, deps: BotDeps): Promise<v
   const userId = requireUserId(ctx);
   deps.stateStore.saveSession(resetSession(deps.stateStore.getSession(userId)));
   await ctx.reply(
-    "Выберите цвет из каталога или найдите его по коду и названию. После этого отправьте фото машины, и бот вернет превью перекраски.",
+    [
+      "Краткая инструкция:",
+      "1. Нажмите «Выбрать цвет» или «Поиск».",
+      "2. Выберите цвет из каталога.",
+      "3. Отправьте фото одной машины с хорошо видимым кузовом.",
+      "4. Получите превью и при необходимости выберите другой цвет."
+    ].join("\n"),
     mainMenuKeyboard()
   );
 }

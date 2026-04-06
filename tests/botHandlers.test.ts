@@ -85,7 +85,7 @@ describe("bot handlers", () => {
     ctx.message = { text: "040" };
     await handleTextMessage(ctx as any, deps);
 
-    expect(replies[0]).toContain("Выберите цвет");
+    expect(replies[0]).toContain("Краткая инструкция");
     expect(replies[1]).toContain("Введите код");
     expect(replies[2]).toContain("Нашел такие цвета");
   });
