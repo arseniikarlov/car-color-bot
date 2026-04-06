@@ -92,11 +92,16 @@ export class OpenAIService implements OpenAIImageGateway {
         : null;
 
     const prompt = [
-      "Edit the provided car photo.",
-      `Repaint the vehicle body into the selected catalog color: code ${color.code}, name ${color.name}.`,
+      "Task: change only the paint color of the same car in this exact photo.",
+      `Target color: catalog code ${color.code}, name ${color.name}.`,
       ...(swatchHint ? [swatchHint] : []),
-      "Preserve the same car, angle, body geometry, wheels, windows, background, reflections, and lighting as much as possible.",
-      "Change mainly the painted body panels. Keep the image photorealistic."
+      "Strict rules:",
+      "- Recolor only painted exterior body panels.",
+      "- Do NOT modify camera angle, framing, perspective, or composition.",
+      "- Do NOT modify background, road, sky, people, buildings, or any non-car objects.",
+      "- Do NOT modify wheels, tires, windows, mirrors, lights, grille, badges, plate, trim, shadows, reflections, or body geometry.",
+      "- Keep realism and original texture; only hue/saturation/value of body paint may change.",
+      "If uncertain, preserve original pixels and avoid any non-color edits."
     ].join(" ");
 
     const response = isGptImageModel(this.imageModel)
@@ -118,7 +123,7 @@ export class OpenAIService implements OpenAIImageGateway {
 
     return {
       output_image_path: outputPath,
-      prompt_version: "v1",
+      prompt_version: "v2-color-only",
       model: this.imageModel
     };
   }
