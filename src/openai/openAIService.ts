@@ -96,8 +96,8 @@ export class OpenAIService implements OpenAIImageGateway {
         : null;
 
     const prompt = [
+      "Замени цвет машины на цвет с каталога.",
       "2 файла: 1) машина от клиента, 2) цвет из каталога.",
-      "Поменяй только цвет машины.",
       `Целевой цвет: код ${color.code}, название ${color.name}.`,
       ...(swatchHint ? [swatchHint] : []),
       "Strict rules:",
