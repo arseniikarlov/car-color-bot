@@ -11,6 +11,7 @@ import type {
   PhotoValidationResult,
   PreviewResult
 } from "../types.js";
+import { hexToRgb, normalizeHexColor, normalizeRgbColor } from "../catalog/catalogUtils.js";
 
 export interface OpenAIServiceOptions {
   apiKey: string;
@@ -83,9 +84,17 @@ export class OpenAIService implements OpenAIImageGateway {
   }
 
   async generatePreview(imagePath: string, color: CatalogColor): Promise<PreviewResult> {
+    const swatchHex = normalizeHexColor(color.swatch_hex);
+    const swatchRgb = normalizeRgbColor(color.swatch_rgb) ?? hexToRgb(swatchHex);
+    const swatchHint =
+      swatchHex || swatchRgb
+        ? `Target paint shade from the catalog swatch: ${formatSwatchHint(swatchHex, swatchRgb)}. Match this tone closely while preserving natural reflections and lighting.`
+        : null;
+
     const prompt = [
       "Edit the provided car photo.",
       `Repaint the vehicle body into the selected catalog color: code ${color.code}, name ${color.name}.`,
+      ...(swatchHint ? [swatchHint] : []),
       "Preserve the same car, angle, body geometry, wheels, windows, background, reflections, and lighting as much as possible.",
       "Change mainly the painted body panels. Keep the image photorealistic."
     ].join(" ");
@@ -153,7 +162,8 @@ export class OpenAIService implements OpenAIImageGateway {
           role: "system",
           content:
             "You extract paint catalog entries from a catalog page image. Return JSON only with shape " +
-            '{"brand":string,"series":string,"items":[{"code":string,"name":string}]}. ' +
+            '{"brand":string,"series":string,"items":[{"code":string,"name":string,"swatch_hex":string,"swatch_rgb":{"r":number,"g":number,"b":number}}]}. ' +
+            "For each row, read the corresponding color swatch and provide its closest swatch_hex and swatch_rgb. " +
             "Do not hallucinate codes or names."
         },
         {
@@ -162,7 +172,8 @@ export class OpenAIService implements OpenAIImageGateway {
             {
               type: "text",
               text:
-                "Read this catalog page and extract each visible color entry. Infer brand and series from the page heading if possible."
+                "Read this catalog page and extract each visible color entry. Infer brand and series from the page heading if possible. " +
+                "For each extracted color, estimate the swatch color from the page and return hex/rgb."
             },
             {
               type: "image_url",
@@ -183,12 +194,35 @@ export class OpenAIService implements OpenAIImageGateway {
     return {
       brand: parsed.brand?.trim() ?? "",
       series: parsed.series?.trim() ?? "",
-      items: parsed.items.map((item) => ({
-        code: String(item.code ?? "").trim(),
-        name: String(item.name ?? "").trim()
-      }))
+      items: parsed.items.map((item) => {
+        const swatchHex = normalizeHexColor(item.swatch_hex);
+        const swatchRgb = normalizeRgbColor(item.swatch_rgb);
+        return {
+          code: String(item.code ?? "").trim(),
+          name: String(item.name ?? "").trim(),
+          ...(swatchHex ? { swatch_hex: swatchHex } : {}),
+          ...(swatchRgb ? { swatch_rgb: swatchRgb } : {})
+        };
+      })
     };
   }
+}
+
+function formatSwatchHint(
+  swatchHex: string | null,
+  swatchRgb: { r: number; g: number; b: number } | null
+): string {
+  const rgbText = swatchRgb ? `RGB(${swatchRgb.r}, ${swatchRgb.g}, ${swatchRgb.b})` : null;
+  if (swatchHex && rgbText) {
+    return `${swatchHex}, ${rgbText}`;
+  }
+  if (swatchHex) {
+    return swatchHex;
+  }
+  if (rgbText) {
+    return rgbText;
+  }
+  return "unknown";
 }
 
 function isGptImageModel(model: string): boolean {

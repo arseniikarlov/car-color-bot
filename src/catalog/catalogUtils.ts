@@ -70,6 +70,14 @@ export function deduplicateColors(items: CatalogColor[]): CatalogColor[] {
     if (mergedPageImage) {
       merged.page_image = mergedPageImage;
     }
+    const mergedSwatchHex = existing.swatch_hex || item.swatch_hex;
+    if (mergedSwatchHex) {
+      merged.swatch_hex = mergedSwatchHex;
+    }
+    const mergedSwatchRgb = existing.swatch_rgb || item.swatch_rgb;
+    if (mergedSwatchRgb) {
+      merged.swatch_rgb = mergedSwatchRgb;
+    }
     deduped.set(key, merged);
   }
 
@@ -89,6 +97,12 @@ export function toCatalogColor(input: {
   page: number;
   sourcePdf: string;
   pageImage?: string;
+  swatchHex?: string;
+  swatchRgb?: {
+    r: number;
+    g: number;
+    b: number;
+  };
 }): CatalogColor {
   const brand = (input.brand ?? "").trim();
   const series = (input.series ?? "").trim();
@@ -109,6 +123,73 @@ export function toCatalogColor(input: {
   if (input.pageImage) {
     color.page_image = input.pageImage;
   }
+  const swatchHex = normalizeHexColor(input.swatchHex);
+  if (swatchHex) {
+    color.swatch_hex = swatchHex;
+  }
+  const swatchRgb = normalizeRgbColor(input.swatchRgb);
+  if (swatchRgb) {
+    color.swatch_rgb = swatchRgb;
+  }
 
   return color;
+}
+
+export function normalizeHexColor(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim().replace(/^0x/iu, "").replace(/^#/u, "");
+  if (!/^[0-9a-fA-F]{6}$/u.test(trimmed)) {
+    return null;
+  }
+  return `#${trimmed.toUpperCase()}`;
+}
+
+export function normalizeRgbColor(
+  value:
+    | {
+        r: number;
+        g: number;
+        b: number;
+      }
+    | null
+    | undefined
+): { r: number; g: number; b: number } | null {
+  if (!value) {
+    return null;
+  }
+
+  const r = clampRgbChannel(value.r);
+  const g = clampRgbChannel(value.g);
+  const b = clampRgbChannel(value.b);
+  if (r === null || g === null || b === null) {
+    return null;
+  }
+
+  return { r, g, b };
+}
+
+export function hexToRgb(hex: string | null | undefined): { r: number; g: number; b: number } | null {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) {
+    return null;
+  }
+  const value = normalized.slice(1);
+  return {
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16)
+  };
+}
+
+function clampRgbChannel(value: number): number | null {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  const rounded = Math.round(value);
+  if (rounded < 0 || rounded > 255) {
+    return null;
+  }
+  return rounded;
 }

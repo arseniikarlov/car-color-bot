@@ -88,4 +88,54 @@ describe("importCatalog", () => {
     await access(path.join(tempDir, "out", "catalog_pages", "page-001.png"));
     await access(path.join(tempDir, "out", "catalog_pages", "page-002.png"));
   });
+
+  it("enriches parsed text colors with swatch hex and rgb from catalog image", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "catalog-import-swatch-"));
+    const page1 = path.join(tempDir, "page-1.png");
+    await writeFile(page1, Buffer.from("fake-image-1"));
+
+    const fakeOpenAI: OpenAIImageGateway = {
+      async validateCarPhoto() {
+        throw new Error("not used");
+      },
+      async generatePreview() {
+        throw new Error("not used");
+      },
+      async extractCatalogColorsFromImage() {
+        return {
+          brand: "Toyota",
+          series: "Solid",
+          items: [
+            {
+              code: "040",
+              name: "Super White",
+              swatch_hex: "#F0F0EA",
+              swatch_rgb: { r: 240, g: 240, b: 234 }
+            }
+          ]
+        };
+      }
+    };
+
+    const outputPath = path.join(tempDir, "out", "catalog.json");
+    const result = await importCatalog("/tmp/colors.pdf", outputPath, {
+      async extractTexts() {
+        return [
+          `
+            Toyota
+            Solid
+            040 Super White
+          `
+        ];
+      },
+      async renderPages() {
+        return [page1];
+      },
+      openai: fakeOpenAI
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.swatch_hex).toBe("#F0F0EA");
+    expect(result.items[0]?.swatch_rgb).toEqual({ r: 240, g: 240, b: 234 });
+  });
 });

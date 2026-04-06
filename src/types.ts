@@ -7,6 +7,12 @@ export interface CatalogColor {
   page: number;
   source_pdf: string;
   page_image?: string;
+  swatch_hex?: string;
+  swatch_rgb?: {
+    r: number;
+    g: number;
+    b: number;
+  };
   search_tokens: string[];
 }
 
@@ -57,6 +63,12 @@ export interface ExtractedVisionCatalog {
   items: Array<{
     code: string;
     name: string;
+    swatch_hex?: string;
+    swatch_rgb?: {
+      r: number;
+      g: number;
+      b: number;
+    };
   }>;
 }
 

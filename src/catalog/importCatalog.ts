@@ -1,8 +1,8 @@
 import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { CatalogColor, CatalogImportResult, OpenAIImageGateway } from "../types.js";
-import { deduplicateColors, toCatalogColor } from "./catalogUtils.js";
+import type { CatalogColor, CatalogImportResult, ExtractedVisionCatalog, OpenAIImageGateway } from "../types.js";
+import { deduplicateColors, hexToRgb, normalizeHexColor, normalizeRgbColor, normalizeSearchText, toCatalogColor } from "./catalogUtils.js";
 import { extractPdfPageTexts, renderPdfPagesToImages } from "./pdfTools.js";
 import { parseCatalogPageText } from "./textParser.js";
 
@@ -59,7 +59,9 @@ export async function importCatalog(
               name: item.name,
               page: pageNumber,
               sourcePdf: pdfPath,
-              ...(pageAsset ? { pageImage: pageAsset } : {})
+              ...(pageAsset ? { pageImage: pageAsset } : {}),
+              ...(item.swatch_hex ? { swatchHex: item.swatch_hex } : {}),
+              ...(item.swatch_rgb ? { swatchRgb: item.swatch_rgb } : {})
             })
           );
 
@@ -67,6 +69,8 @@ export async function importCatalog(
           warnings.push(`Page ${pageNumber}: vision fallback returned no colors.`);
         }
       }
+    } else if (deps.openai && pageImagePath) {
+      extracted = await enrichWithVisionSwatches(extracted, pageImagePath, deps.openai, pageNumber, warnings);
     }
 
     items.push(...extracted);
@@ -135,4 +139,69 @@ async function persistCatalogPageAssets(pageImages: string[], outputPath: string
   }
 
   return pageAssets;
+}
+
+type VisionColorItem = ExtractedVisionCatalog["items"][number];
+
+async function enrichWithVisionSwatches(
+  baseColors: CatalogColor[],
+  pageImagePath: string,
+  openai: OpenAIImageGateway,
+  pageNumber: number,
+  warnings: string[]
+): Promise<CatalogColor[]> {
+  try {
+    const visionData = await openai.extractCatalogColorsFromImage(pageImagePath);
+    const byCode = new Map<string, VisionColorItem[]>();
+    const byName = new Map<string, VisionColorItem[]>();
+
+    for (const item of visionData.items) {
+      const codeKey = normalizeSearchText(item.code);
+      const nameKey = normalizeSearchText(item.name);
+      if (codeKey) {
+        const bucket = byCode.get(codeKey) ?? [];
+        bucket.push(item);
+        byCode.set(codeKey, bucket);
+      }
+      if (nameKey) {
+        const bucket = byName.get(nameKey) ?? [];
+        bucket.push(item);
+        byName.set(nameKey, bucket);
+      }
+    }
+
+    return baseColors.map((color) => {
+      if (color.swatch_hex || color.swatch_rgb) {
+        return color;
+      }
+
+      const codeKey = normalizeSearchText(color.code);
+      const nameKey = normalizeSearchText(color.name);
+      const candidate =
+        (codeKey ? byCode.get(codeKey)?.[0] : null) ?? (nameKey ? byName.get(nameKey)?.[0] : null);
+      if (!candidate) {
+        return color;
+      }
+
+      const swatchHex = normalizeHexColor(candidate.swatch_hex);
+      const swatchRgb = normalizeRgbColor(candidate.swatch_rgb) ?? hexToRgb(swatchHex);
+      if (!swatchHex && !swatchRgb) {
+        return color;
+      }
+
+      const enriched: CatalogColor = { ...color };
+      if (swatchHex) {
+        enriched.swatch_hex = swatchHex;
+      }
+      if (swatchRgb) {
+        enriched.swatch_rgb = swatchRgb;
+      }
+      return enriched;
+    });
+  } catch (error) {
+    warnings.push(
+      `Page ${pageNumber}: unable to enrich swatch colors from vision. ${error instanceof Error ? error.message : String(error)}`
+    );
+    return baseColors;
+  }
 }

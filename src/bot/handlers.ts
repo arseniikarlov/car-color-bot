@@ -177,13 +177,14 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
     deps.stateStore.saveSession(selectColor(session, color.id));
     await ctx.answerCbQuery?.("Цвет выбран");
     const colorImagePath = await resolveCatalogImagePath(deps.catalogBaseDir, color.page_image);
+    const swatchLabel = formatColorSwatchLabel(color);
     if (colorImagePath) {
       await ctx.replyWithPhoto(Input.fromLocalFile(colorImagePath), {
-        caption: `Картинка из каталога: ${color.code} / ${color.name}`
+        caption: `Картинка из каталога: ${color.code} / ${color.name}${swatchLabel ? ` (${swatchLabel})` : ""}`
       });
     }
     await ctx.reply(
-      `Вы выбрали ${color.code} / ${color.name}. Теперь отправьте фото машины, и я сделаю превью перекраски.`
+      `Вы выбрали ${color.code} / ${color.name}${swatchLabel ? ` (${swatchLabel})` : ""}. Теперь отправьте фото машины, и я сделаю превью перекраски.`
     );
     return;
   }
@@ -240,8 +241,9 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
 
     const preview = await deps.openai.generatePreview(inputPath, color);
     deps.stateStore.saveSession(markCompleted(deps.stateStore.getSession(userId), largestPhoto.file_id));
+    const swatchLabel = formatColorSwatchLabel(color);
     await ctx.replyWithPhoto(Input.fromLocalFile(preview.output_image_path), {
-      caption: `Превью в цвете ${color.name} / код ${color.code}`,
+      caption: `Превью в цвете ${color.name} / код ${color.code}${swatchLabel ? ` (${swatchLabel})` : ""}`,
       ...resultKeyboard()
     });
   } catch (error) {
@@ -278,4 +280,14 @@ async function resolveCatalogImagePath(
   } catch {
     return null;
   }
+}
+
+function formatColorSwatchLabel(color: { swatch_hex?: string; swatch_rgb?: { r: number; g: number; b: number } }): string | null {
+  if (color.swatch_hex) {
+    return `HEX ${color.swatch_hex}`;
+  }
+  if (color.swatch_rgb) {
+    return `RGB ${color.swatch_rgb.r},${color.swatch_rgb.g},${color.swatch_rgb.b}`;
+  }
+  return null;
 }
