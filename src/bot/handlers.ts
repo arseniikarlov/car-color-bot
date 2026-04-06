@@ -64,9 +64,15 @@ export async function handleCatalogCommand(ctx: MinimalContext, deps: BotDeps, p
     : "Каталог пока пуст. Сначала импортируйте PDF через import-catalog.";
   const keyboard = items.length ? catalogKeyboard(items, page, totalPages) : undefined;
 
-  if (ctx.editMessageText) {
+  if (!ctx.callbackQuery || !ctx.editMessageText) {
+    await ctx.reply(text, keyboard);
+    return;
+  }
+
+  try {
     await ctx.editMessageText(text, keyboard);
-  } else {
+  } catch {
+    // If Telegram refuses editing (for example, non-bot message), send a new message instead.
     await ctx.reply(text, keyboard);
   }
 }
