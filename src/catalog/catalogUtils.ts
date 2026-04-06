@@ -59,13 +59,18 @@ export function deduplicateColors(items: CatalogColor[]): CatalogColor[] {
       deduped.set(key, item);
       continue;
     }
-    deduped.set(key, {
+    const merged: CatalogColor = {
       ...existing,
       brand: existing.brand || item.brand,
       series: existing.series || item.series,
       page: Math.min(existing.page, item.page),
       search_tokens: [...new Set([...existing.search_tokens, ...item.search_tokens])]
-    });
+    };
+    const mergedPageImage = existing.page_image || item.page_image;
+    if (mergedPageImage) {
+      merged.page_image = mergedPageImage;
+    }
+    deduped.set(key, merged);
   }
 
   return [...deduped.values()].sort((left, right) => {
@@ -83,13 +88,14 @@ export function toCatalogColor(input: {
   name: string;
   page: number;
   sourcePdf: string;
+  pageImage?: string;
 }): CatalogColor {
   const brand = (input.brand ?? "").trim();
   const series = (input.series ?? "").trim();
   const code = input.code.trim();
   const name = input.name.trim();
 
-  return {
+  const color: CatalogColor = {
     id: buildColorId({ brand, series, code, name, page: input.page }),
     brand,
     series,
@@ -99,4 +105,10 @@ export function toCatalogColor(input: {
     source_pdf: path.basename(input.sourcePdf),
     search_tokens: buildSearchTokens([brand, series, code, name])
   };
+
+  if (input.pageImage) {
+    color.page_image = input.pageImage;
+  }
+
+  return color;
 }

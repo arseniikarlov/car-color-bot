@@ -77,7 +77,7 @@ describe("bot handlers", () => {
         return { brand: "", series: "", items: [] };
       }
     };
-    const deps = { catalog, stateStore: store as any, openai, maxInputImageMb: 10 };
+    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, openai, maxInputImageMb: 10 };
 
     const { ctx, replies } = createCtx();
     await handleStart(ctx as any, deps);
@@ -103,7 +103,7 @@ describe("bot handlers", () => {
         return { brand: "", series: "", items: [] };
       }
     };
-    const deps = { catalog, stateStore: store as any, openai, maxInputImageMb: 10 };
+    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, openai, maxInputImageMb: 10 };
     const firstColor = catalog.listPage(0, 10)[0]!;
     const firstColorPickKey = catalog.pickKeyForId(firstColor.id)!;
 

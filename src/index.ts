@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { createBot } from "./bot/createBot.js";
 import { loadCatalog } from "./catalog/loadCatalog.js";
 import { CatalogIndex } from "./catalog/catalogIndex.js";
@@ -19,6 +21,7 @@ async function main(): Promise<void> {
 
   const bot = createBot(config.telegramBotToken, {
     catalog: catalogIndex,
+    catalogBaseDir: path.dirname(config.catalogPath),
     stateStore,
     openai,
     maxInputImageMb: config.maxInputImageMb

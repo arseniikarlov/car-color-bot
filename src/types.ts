@@ -6,6 +6,7 @@ export interface CatalogColor {
   name: string;
   page: number;
   source_pdf: string;
+  page_image?: string;
   search_tokens: string[];
 }
 

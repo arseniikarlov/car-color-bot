@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { Input } from "telegraf";
@@ -14,6 +14,7 @@ const DEFAULT_PAGE_SIZE = 6;
 
 export interface BotDeps {
   catalog: CatalogIndex;
+  catalogBaseDir: string;
   stateStore: StateStore;
   openai: OpenAIImageGateway;
   maxInputImageMb: number;
@@ -175,6 +176,12 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
     const session = deps.stateStore.getSession(userId);
     deps.stateStore.saveSession(selectColor(session, color.id));
     await ctx.answerCbQuery?.("Цвет выбран");
+    const colorImagePath = await resolveCatalogImagePath(deps.catalogBaseDir, color.page_image);
+    if (colorImagePath) {
+      await ctx.replyWithPhoto(Input.fromLocalFile(colorImagePath), {
+        caption: `Картинка из каталога: ${color.code} / ${color.name}`
+      });
+    }
     await ctx.reply(
       `Вы выбрали ${color.code} / ${color.name}. Теперь отправьте фото машины, и я сделаю превью перекраски.`
     );
@@ -254,4 +261,21 @@ function requireUserId(ctx: MinimalContext): number {
     throw new Error("Telegram user is missing in context");
   }
   return userId;
+}
+
+async function resolveCatalogImagePath(
+  catalogBaseDir: string,
+  pageImageRelativePath: string | undefined
+): Promise<string | null> {
+  if (!pageImageRelativePath) {
+    return null;
+  }
+
+  const absolutePath = path.resolve(catalogBaseDir, pageImageRelativePath);
+  try {
+    await access(absolutePath);
+    return absolutePath;
+  } catch {
+    return null;
+  }
 }

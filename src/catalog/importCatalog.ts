@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { CatalogColor, CatalogImportResult, OpenAIImageGateway } from "../types.js";
@@ -33,13 +33,16 @@ export async function importCatalog(
     throw new Error("Unable to extract any catalog pages from the provided PDF.");
   }
 
+  const pageAssets = await persistCatalogPageAssets(pageImages, outputPath);
   const items: CatalogColor[] = [];
 
   for (let index = 0; index < Math.max(pageTexts.length, pageImages.length); index += 1) {
     const pageNumber = index + 1;
     const pageText = pageTexts[index] ?? "";
     const pageImagePath = pageImages[index];
+    const pageAsset = pageAssets.get(pageNumber);
     let extracted = parseCatalogPageText(pageText, pageNumber, pdfPath);
+    extracted = extracted.map((item) => (pageAsset ? { ...item, page_image: pageAsset } : item));
 
     if (!extracted.length) {
       if (!deps.openai || !pageImagePath) {
@@ -55,7 +58,8 @@ export async function importCatalog(
               code: item.code,
               name: item.name,
               page: pageNumber,
-              sourcePdf: pdfPath
+              sourcePdf: pdfPath,
+              ...(pageAsset ? { pageImage: pageAsset } : {})
             })
           );
 
@@ -98,4 +102,37 @@ export function createDefaultCatalogImporter(openai: OpenAIImageGateway | null):
     renderPages: renderPdfPagesToImages,
     openai
   };
+}
+
+async function persistCatalogPageAssets(pageImages: string[], outputPath: string): Promise<Map<number, string>> {
+  const outputDir = path.dirname(outputPath);
+  const imagesDirName = "catalog_pages";
+  const imagesDirPath = path.join(outputDir, imagesDirName);
+  await mkdir(imagesDirPath, { recursive: true });
+
+  const pageAssets = new Map<number, string>();
+
+  for (let index = 0; index < pageImages.length; index += 1) {
+    const pageNumber = index + 1;
+    const sourceImagePath = pageImages[index];
+    if (!sourceImagePath) {
+      continue;
+    }
+
+    try {
+      await access(sourceImagePath);
+    } catch {
+      continue;
+    }
+
+    const fileName = `page-${String(pageNumber).padStart(3, "0")}.png`;
+    const targetImagePath = path.join(imagesDirPath, fileName);
+    if (path.resolve(sourceImagePath) !== path.resolve(targetImagePath)) {
+      await copyFile(sourceImagePath, targetImagePath);
+    }
+
+    pageAssets.set(pageNumber, path.posix.join(imagesDirName, fileName));
+  }
+
+  return pageAssets;
 }
