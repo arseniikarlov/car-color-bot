@@ -21,10 +21,14 @@ export interface OpenAIServiceOptions {
 
 export class OpenAIService implements OpenAIImageGateway {
   private readonly client: OpenAI;
+  private readonly apiKey: string;
+  private readonly timeoutMs: number;
   private readonly visionModel: string;
   private readonly imageModel: string;
 
   constructor(options: OpenAIServiceOptions) {
+    this.apiKey = options.apiKey;
+    this.timeoutMs = options.timeoutMs;
     this.visionModel = options.visionModel;
     this.imageModel = options.imageModel;
     this.client = new OpenAI({
@@ -86,12 +90,14 @@ export class OpenAIService implements OpenAIImageGateway {
       "Change mainly the painted body panels. Keep the image photorealistic."
     ].join(" ");
 
-    const response = await this.client.images.edit({
-      model: this.imageModel,
-      image: createReadStream(imagePath) as any,
-      prompt,
-      size: "1024x1024"
-    } as any);
+    const response = isGptImageModel(this.imageModel)
+      ? await this.editImageViaJsonEndpoint(imagePath, prompt)
+      : await this.client.images.edit({
+          model: this.imageModel,
+          image: createReadStream(imagePath) as any,
+          prompt,
+          size: "1024x1024"
+        } as any);
 
     const base64 = response.data?.[0]?.b64_json;
     if (!base64) {
@@ -106,6 +112,35 @@ export class OpenAIService implements OpenAIImageGateway {
       prompt_version: "v1",
       model: this.imageModel
     };
+  }
+
+  private async editImageViaJsonEndpoint(imagePath: string, prompt: string): Promise<{ data?: Array<{ b64_json?: string }> }> {
+    const imageDataUrl = await fileToDataUrl(imagePath);
+    const response = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: this.imageModel,
+        images: [{ image_url: imageDataUrl }],
+        prompt,
+        size: "1024x1024",
+        output_format: "png"
+      }),
+      signal: AbortSignal.timeout(this.timeoutMs)
+    });
+
+    const json = (await response.json().catch(() => null)) as
+      | { data?: Array<{ b64_json?: string }>; error?: { message?: string } }
+      | null;
+    if (!response.ok) {
+      const errorMessage = json?.error?.message || `OpenAI image edit failed with status ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    return json?.data ? { data: json.data } : {};
   }
 
   async extractCatalogColorsFromImage(imagePath: string): Promise<ExtractedVisionCatalog> {
@@ -154,6 +189,10 @@ export class OpenAIService implements OpenAIImageGateway {
       }))
     };
   }
+}
+
+function isGptImageModel(model: string): boolean {
+  return model.startsWith("gpt-image-") || model === "chatgpt-image-latest";
 }
 
 async function fileToDataUrl(filePath: string): Promise<string> {
