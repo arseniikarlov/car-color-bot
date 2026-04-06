@@ -99,6 +99,7 @@ export class OpenAIService implements OpenAIImageGateway {
       "Замени цвет машины на цвет с каталога.",
       "2 файла: 1) машина от клиента, 2) цвет из каталога.",
       `Целевой цвет: код ${color.code}, название ${color.name}.`,
+      "Сохрани исходное кадрирование целиком, без обрезки.",
       ...(swatchHint ? [swatchHint] : []),
       "Strict rules:",
       "- Recolor only painted exterior body panels.",
@@ -115,7 +116,7 @@ export class OpenAIService implements OpenAIImageGateway {
           model: this.imageModel,
           image: createReadStream(imagePath) as any,
           prompt,
-          size: "1024x1024"
+          size: "auto"
         } as any);
 
     const base64 = response.data?.[0]?.b64_json;
@@ -128,7 +129,7 @@ export class OpenAIService implements OpenAIImageGateway {
 
     return {
       output_image_path: outputPath,
-      prompt_version: "v2-color-only",
+      prompt_version: "v3-color-only-no-crop",
       model: this.imageModel
     };
   }
@@ -159,7 +160,7 @@ export class OpenAIService implements OpenAIImageGateway {
         model: this.imageModel,
         images,
         prompt,
-        size: "1024x1024",
+        size: "auto",
         output_format: "png"
       }),
       signal: AbortSignal.timeout(this.timeoutMs)
