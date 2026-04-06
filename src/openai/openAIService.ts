@@ -83,7 +83,11 @@ export class OpenAIService implements OpenAIImageGateway {
     };
   }
 
-  async generatePreview(imagePath: string, color: CatalogColor): Promise<PreviewResult> {
+  async generatePreview(
+    imagePath: string,
+    color: CatalogColor,
+    catalogReferenceImagePath?: string
+  ): Promise<PreviewResult> {
     const swatchHex = normalizeHexColor(color.swatch_hex);
     const swatchRgb = normalizeRgbColor(color.swatch_rgb) ?? hexToRgb(swatchHex);
     const swatchHint =
@@ -92,8 +96,9 @@ export class OpenAIService implements OpenAIImageGateway {
         : null;
 
     const prompt = [
-      "Task: change only the paint color of the same car in this exact photo.",
-      `Target color: catalog code ${color.code}, name ${color.name}.`,
+      "2 файла: 1) машина от клиента, 2) цвет из каталога.",
+      "Поменяй только цвет машины.",
+      `Целевой цвет: код ${color.code}, название ${color.name}.`,
       ...(swatchHint ? [swatchHint] : []),
       "Strict rules:",
       "- Recolor only painted exterior body panels.",
@@ -105,7 +110,7 @@ export class OpenAIService implements OpenAIImageGateway {
     ].join(" ");
 
     const response = isGptImageModel(this.imageModel)
-      ? await this.editImageViaJsonEndpoint(imagePath, prompt)
+      ? await this.editImageViaJsonEndpoint(imagePath, prompt, catalogReferenceImagePath)
       : await this.client.images.edit({
           model: this.imageModel,
           image: createReadStream(imagePath) as any,
@@ -128,8 +133,22 @@ export class OpenAIService implements OpenAIImageGateway {
     };
   }
 
-  private async editImageViaJsonEndpoint(imagePath: string, prompt: string): Promise<{ data?: Array<{ b64_json?: string }> }> {
+  private async editImageViaJsonEndpoint(
+    imagePath: string,
+    prompt: string,
+    catalogReferenceImagePath?: string
+  ): Promise<{ data?: Array<{ b64_json?: string }> }> {
     const imageDataUrl = await fileToDataUrl(imagePath);
+    const images: Array<{ image_url: string }> = [{ image_url: imageDataUrl }];
+    if (catalogReferenceImagePath) {
+      try {
+        const catalogColorDataUrl = await fileToDataUrl(catalogReferenceImagePath);
+        images.push({ image_url: catalogColorDataUrl });
+      } catch {
+        // Continue with the main client image if catalog reference image is unavailable.
+      }
+    }
+
     const response = await fetch("https://api.openai.com/v1/images/edits", {
       method: "POST",
       headers: {
@@ -138,7 +157,7 @@ export class OpenAIService implements OpenAIImageGateway {
       },
       body: JSON.stringify({
         model: this.imageModel,
-        images: [{ image_url: imageDataUrl }],
+        images,
         prompt,
         size: "1024x1024",
         output_format: "png"

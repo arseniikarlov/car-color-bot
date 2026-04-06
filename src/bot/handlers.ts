@@ -238,7 +238,8 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
       return;
     }
 
-    const preview = await deps.openai.generatePreview(inputPath, color);
+    const catalogReferenceImagePath = await resolveCatalogImagePath(deps.catalogBaseDir, color.page_image);
+    const preview = await deps.openai.generatePreview(inputPath, color, catalogReferenceImagePath ?? undefined);
     deps.stateStore.saveSession(markCompleted(deps.stateStore.getSession(userId), largestPhoto.file_id));
     await ctx.replyWithPhoto(Input.fromLocalFile(preview.output_image_path), {
       caption: botCopy.previewCaption(color),

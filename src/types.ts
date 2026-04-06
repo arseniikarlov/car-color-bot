@@ -74,6 +74,10 @@ export interface ExtractedVisionCatalog {
 
 export interface OpenAIImageGateway {
   validateCarPhoto(imagePath: string): Promise<PhotoValidationResult>;
-  generatePreview(imagePath: string, color: CatalogColor): Promise<PreviewResult>;
+  generatePreview(
+    imagePath: string,
+    color: CatalogColor,
+    catalogReferenceImagePath?: string
+  ): Promise<PreviewResult>;
   extractCatalogColorsFromImage(imagePath: string): Promise<ExtractedVisionCatalog>;
 }
