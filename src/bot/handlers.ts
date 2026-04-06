@@ -8,6 +8,7 @@ import type { OpenAIImageGateway } from "../types.js";
 import { markAwaitingPhoto, markCompleted, markFailed, markProcessing, resetSession, selectColor, startSearch } from "../state/stateMachine.js";
 import type { StateStore } from "../state/sqliteStateStore.js";
 import { cleanupPath, createTempDir } from "../utils/tempFiles.js";
+import { botCopy, resolveMainMenuAction } from "./copy.js";
 import { catalogKeyboard, mainMenuKeyboard, resultKeyboard, searchResultsKeyboard } from "./keyboards.js";
 
 const DEFAULT_PAGE_SIZE = 6;
@@ -51,24 +52,13 @@ interface MinimalContext {
 export async function handleStart(ctx: MinimalContext, deps: BotDeps): Promise<void> {
   const userId = requireUserId(ctx);
   deps.stateStore.saveSession(resetSession(deps.stateStore.getSession(userId)));
-  await ctx.reply(
-    [
-      "Краткая инструкция:",
-      "1. Нажмите «Выбрать цвет» или «Поиск».",
-      "2. Выберите цвет из каталога.",
-      "3. Отправьте фото одной машины с хорошо видимым кузовом.",
-      "4. Получите превью и при необходимости выберите другой цвет."
-    ].join("\n"),
-    mainMenuKeyboard()
-  );
+  await ctx.reply(botCopy.start(), mainMenuKeyboard());
 }
 
 export async function handleCatalogCommand(ctx: MinimalContext, deps: BotDeps, page = 0): Promise<void> {
   const items = deps.catalog.listPage(page, deps.pageSize ?? DEFAULT_PAGE_SIZE);
   const totalPages = deps.catalog.pageCount(deps.pageSize ?? DEFAULT_PAGE_SIZE);
-  const text = items.length
-    ? "Выберите цвет из каталога:"
-    : "Каталог пока пуст. Сначала импортируйте PDF через import-catalog.";
+  const text = items.length ? botCopy.catalog() : botCopy.emptyCatalog();
   const keyboard = items.length
     ? catalogKeyboard(items, page, totalPages, (item) => deps.catalog.pickKeyForId(item.id) ?? item.id)
     : undefined;
@@ -89,16 +79,13 @@ export async function handleCatalogCommand(ctx: MinimalContext, deps: BotDeps, p
 export async function handleSearchCommand(ctx: MinimalContext, deps: BotDeps): Promise<void> {
   const userId = requireUserId(ctx);
   deps.stateStore.saveSession(startSearch(deps.stateStore.getSession(userId)));
-  await ctx.reply("Введите код цвета или часть названия, например `040` или `super white`.", {
-    parse_mode: "Markdown",
-    ...mainMenuKeyboard()
-  });
+  await ctx.reply(botCopy.search(), mainMenuKeyboard());
 }
 
 export async function handleResetCommand(ctx: MinimalContext, deps: BotDeps): Promise<void> {
   const userId = requireUserId(ctx);
   deps.stateStore.saveSession(resetSession(deps.stateStore.getSession(userId)));
-  await ctx.reply("Сценарий сброшен. Можно выбрать новый цвет или запустить поиск.", mainMenuKeyboard());
+  await ctx.reply(botCopy.reset(), mainMenuKeyboard());
 }
 
 export async function handleTextMessage(ctx: MinimalContext, deps: BotDeps): Promise<void> {
@@ -110,15 +97,16 @@ export async function handleTextMessage(ctx: MinimalContext, deps: BotDeps): Pro
     return;
   }
 
-  if (text === "Выбрать цвет") {
+  const action = resolveMainMenuAction(text);
+  if (action === "pick_color") {
     await handleCatalogCommand(ctx, deps, 0);
     return;
   }
-  if (text === "Поиск") {
+  if (action === "search") {
     await handleSearchCommand(ctx, deps);
     return;
   }
-  if (text === "Сбросить") {
+  if (action === "reset") {
     await handleResetCommand(ctx, deps);
     return;
   }
@@ -126,18 +114,18 @@ export async function handleTextMessage(ctx: MinimalContext, deps: BotDeps): Pro
   const userId = requireUserId(ctx);
   const session = deps.stateStore.getSession(userId);
   if (session.state !== "awaiting_search_query") {
-    await ctx.reply("Используйте кнопки меню: выберите цвет, выполните поиск или отправьте фото после выбора цвета.", mainMenuKeyboard());
+    await ctx.reply(botCopy.fallbackMenuHint(), mainMenuKeyboard());
     return;
   }
 
   const matches = deps.catalog.search(text, 10);
   if (!matches.length) {
-    await ctx.reply("Ничего не найдено. Попробуйте код цвета или другое название.");
+    await ctx.reply(botCopy.searchNoResults(text), mainMenuKeyboard());
     return;
   }
 
   await ctx.reply(
-    "Нашел такие цвета:",
+    botCopy.searchResults(matches.length),
     searchResultsKeyboard(matches, (item) => deps.catalog.pickKeyForId(item.id) ?? item.id)
   );
 }
@@ -147,7 +135,12 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
   const userId = requireUserId(ctx);
 
   if (data === "noop") {
-    await ctx.answerCbQuery?.("Текущая страница");
+    await ctx.answerCbQuery?.(botCopy.answerCurrentPage());
+    return;
+  }
+  if (data === "to_menu") {
+    await ctx.answerCbQuery?.();
+    await handleStart(ctx, deps);
     return;
   }
   if (data === "choose_other") {
@@ -158,12 +151,13 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
   if (data === "upload_other") {
     const session = deps.stateStore.getSession(userId);
     if (!session.selected_color_id) {
-      await ctx.answerCbQuery?.("Сначала выберите цвет");
+      await ctx.answerCbQuery?.();
+      await ctx.reply(botCopy.uploadAnotherWithoutColor(), mainMenuKeyboard());
       return;
     }
     deps.stateStore.saveSession(markAwaitingPhoto(session));
     await ctx.answerCbQuery?.();
-    await ctx.reply("Отправьте новое фото машины в выбранном цвете каталога.");
+    await ctx.reply(botCopy.uploadAnotherPhotoPrompt(), resultKeyboard());
     return;
   }
   if (data.startsWith("page:")) {
@@ -176,22 +170,19 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
     const pickKey = data.slice("pick:".length);
     const color = deps.catalog.getByPickKey(pickKey) ?? deps.catalog.getById(pickKey);
     if (!color) {
-      await ctx.answerCbQuery?.("Цвет не найден");
+      await ctx.answerCbQuery?.(botCopy.answerColorNotFound());
       return;
     }
     const session = deps.stateStore.getSession(userId);
     deps.stateStore.saveSession(selectColor(session, color.id));
-    await ctx.answerCbQuery?.("Цвет выбран");
+    await ctx.answerCbQuery?.(botCopy.answerColorSelected());
     const colorImagePath = await resolveCatalogImagePath(deps.catalogBaseDir, color.page_image);
-    const swatchLabel = formatColorSwatchLabel(color);
     if (colorImagePath) {
       await ctx.replyWithPhoto(Input.fromLocalFile(colorImagePath), {
-        caption: `Картинка из каталога: ${color.code} / ${color.name}${swatchLabel ? ` (${swatchLabel})` : ""}`
+        caption: botCopy.catalogImageCaption(color)
       });
     }
-    await ctx.reply(
-      `Вы выбрали ${color.code} / ${color.name}${swatchLabel ? ` (${swatchLabel})` : ""}. Теперь отправьте фото машины, и я сделаю превью перекраски.`
-    );
+    await ctx.reply(botCopy.colorSelected(color), resultKeyboard());
     return;
   }
 }
@@ -202,20 +193,20 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
   const color = session.selected_color_id ? deps.catalog.getById(session.selected_color_id) : null;
 
   if (!color) {
-    await ctx.reply("Сначала выберите цвет через /catalog или /search.");
+    await ctx.reply(botCopy.selectColorBeforePhoto(), mainMenuKeyboard());
     return;
   }
 
   const photos = ctx.message?.photo ?? [];
   const largestPhoto = photos[photos.length - 1];
   if (!largestPhoto) {
-    await ctx.reply("Не удалось получить фото. Попробуйте отправить изображение как обычное фото Telegram.");
+    await ctx.reply(botCopy.photoMissing(), resultKeyboard());
     return;
   }
 
   const maxBytes = deps.maxInputImageMb * 1024 * 1024;
   if ((largestPhoto.file_size ?? 0) > maxBytes) {
-    await ctx.reply(`Фото слишком большое. Лимит: ${deps.maxInputImageMb} MB.`);
+    await ctx.reply(botCopy.photoTooLarge(deps.maxInputImageMb), resultKeyboard());
     return;
   }
 
@@ -223,7 +214,7 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
   const inputPath = path.join(tempDir, "input.jpg");
 
   deps.stateStore.saveSession(markProcessing(session, largestPhoto.file_id));
-  await ctx.reply("Проверяю фото и готовлю превью. Это может занять до минуты.");
+  await ctx.reply(botCopy.processingPhoto(), resultKeyboard());
 
   try {
     const fileUrl = await ctx.telegram.getFileLink(largestPhoto.file_id);
@@ -238,26 +229,20 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
     const validation = await deps.openai.validateCarPhoto(inputPath);
     if (!validation.is_valid) {
       deps.stateStore.saveSession(markFailed(deps.stateStore.getSession(userId), largestPhoto.file_id));
-      await ctx.reply(
-        `Фото не прошло проверку: ${validation.reason}. Попробуйте другое фото с хорошо видимым кузовом.`,
-        resultKeyboard()
-      );
+      await ctx.reply(botCopy.validationFailed(validation.reason), resultKeyboard());
       return;
     }
 
     const preview = await deps.openai.generatePreview(inputPath, color);
     deps.stateStore.saveSession(markCompleted(deps.stateStore.getSession(userId), largestPhoto.file_id));
-    const swatchLabel = formatColorSwatchLabel(color);
     await ctx.replyWithPhoto(Input.fromLocalFile(preview.output_image_path), {
-      caption: `Превью в цвете ${color.name} / код ${color.code}${swatchLabel ? ` (${swatchLabel})` : ""}`,
+      caption: botCopy.previewCaption(color),
       ...resultKeyboard()
     });
   } catch (error) {
+    console.error("Preview generation failed:", error);
     deps.stateStore.saveSession(markFailed(deps.stateStore.getSession(userId), largestPhoto.file_id));
-    await ctx.reply(
-      `Не удалось подготовить превью: ${error instanceof Error ? error.message : String(error)}. Попробуйте еще раз.`,
-      resultKeyboard()
-    );
+    await ctx.reply(botCopy.previewFailed(error), resultKeyboard());
   } finally {
     await cleanupPath(tempDir);
   }
@@ -286,14 +271,4 @@ async function resolveCatalogImagePath(
   } catch {
     return null;
   }
-}
-
-function formatColorSwatchLabel(color: { swatch_hex?: string; swatch_rgb?: { r: number; g: number; b: number } }): string | null {
-  if (color.swatch_hex) {
-    return `HEX ${color.swatch_hex}`;
-  }
-  if (color.swatch_rgb) {
-    return `RGB ${color.swatch_rgb.r},${color.swatch_rgb.g},${color.swatch_rgb.b}`;
-  }
-  return null;
 }

@@ -85,9 +85,9 @@ describe("bot handlers", () => {
     ctx.message = { text: "040" };
     await handleTextMessage(ctx as any, deps);
 
-    expect(replies[0]).toContain("Краткая инструкция");
-    expect(replies[1]).toContain("Введите код");
-    expect(replies[2]).toContain("Нашел такие цвета");
+    expect(replies[0]).toContain("Добро пожаловать");
+    expect(replies[1]).toContain("Поиск цвета");
+    expect(replies[2]).toContain("Нашел варианты");
   });
 
   it("handles color selection and invalid photo", async () => {
@@ -129,8 +129,30 @@ describe("bot handlers", () => {
       global.fetch = originalFetch;
     }
 
-    expect(replies[0]).toContain("Вы выбрали");
-    expect(replies[1]).toContain("Проверяю фото");
-    expect(replies[2]).toContain("Фото не прошло проверку");
+    expect(replies[0]).toContain("Цвет выбран");
+    expect(replies[1]).toContain("Готовлю превью");
+    expect(replies[2]).toContain("Фото пока не подходит");
+  });
+
+  it("returns user to menu from result actions", async () => {
+    const store = new MemoryStateStore();
+    const openai: OpenAIImageGateway = {
+      async validateCarPhoto(): Promise<PhotoValidationResult> {
+        return { is_valid: true, reason: "", view: "front", issues: [] };
+      },
+      async generatePreview(): Promise<PreviewResult> {
+        return { output_image_path: "/tmp/output.png", prompt_version: "v1", model: "gpt-image-1" };
+      },
+      async extractCatalogColorsFromImage() {
+        return { brand: "", series: "", items: [] };
+      }
+    };
+    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, openai, maxInputImageMb: 10 };
+    const { ctx, replies } = createCtx({
+      callbackQuery: { data: "to_menu" }
+    });
+
+    await handleCallbackQuery(ctx as any, deps);
+    expect(replies[0]).toContain("Добро пожаловать");
   });
 });
