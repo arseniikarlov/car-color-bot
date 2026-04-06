@@ -99,15 +99,18 @@ export class OpenAIService implements OpenAIImageGateway {
       "Замени цвет машины на цвет с каталога.",
       "2 файла: 1) машина от клиента, 2) цвет из каталога.",
       `Целевой цвет: код ${color.code}, название ${color.name}.`,
+      "Режим стабильности: минимальная креативность, без стилизации и без редизайна сцены.",
       "Сохрани исходное кадрирование целиком, без обрезки.",
       ...(swatchHint ? [swatchHint] : []),
       "Strict rules:",
       "- Recolor only painted exterior body panels.",
+      "- Keep the same car identity and all original visual details.",
       "- Do NOT modify camera angle, framing, perspective, or composition.",
       "- Do NOT modify background, road, sky, people, buildings, or any non-car objects.",
       "- Do NOT modify wheels, tires, windows, mirrors, lights, grille, badges, plate, trim, shadows, reflections, or body geometry.",
       "- Keep realism and original texture; only hue/saturation/value of body paint may change.",
-      "If uncertain, preserve original pixels and avoid any non-color edits."
+      "If uncertain, preserve original pixels and avoid any non-color edits.",
+      "Output must look identical to the original photo except for body paint color."
     ].join(" ");
 
     const response = isGptImageModel(this.imageModel)
@@ -129,7 +132,7 @@ export class OpenAIService implements OpenAIImageGateway {
 
     return {
       output_image_path: outputPath,
-      prompt_version: "v3-color-only-no-crop",
+      prompt_version: "v4-stable-color-only",
       model: this.imageModel
     };
   }
