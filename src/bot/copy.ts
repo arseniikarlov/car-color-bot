@@ -152,6 +152,13 @@ export const botCopy = {
       nextAction: "Пожалуйста, подождите немного."
     });
   },
+  processingStillRunning(): string {
+    return buildUiMessage({
+      title: "⏳ Обработка продолжается",
+      context: "Превью еще генерируется. Всё в порядке, просто нужно немного больше времени.",
+      nextAction: "Пожалуйста, дождитесь результата."
+    });
+  },
   validationFailed(reason: string): string {
     const normalizedReason = normalizeReason(reason);
     return buildUiMessage({

@@ -43,6 +43,7 @@ interface MinimalContext {
   telegram: {
     getFileLink(fileId: string): Promise<URL>;
   };
+  sendChatAction?(action: "typing" | "upload_photo"): Promise<unknown>;
   reply(text: string, extra?: unknown): Promise<unknown>;
   replyWithPhoto(photo: unknown, extra?: unknown): Promise<unknown>;
   editMessageText?(text: string, extra?: unknown): Promise<unknown>;
@@ -215,6 +216,10 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
 
   deps.stateStore.saveSession(markProcessing(session, largestPhoto.file_id));
   await ctx.reply(botCopy.processingPhoto(), resultKeyboard());
+  const stopProgressTicker = startChatActionTicker(ctx, "upload_photo", 4_000);
+  const longWaitNoticeTimer = setTimeout(() => {
+    void ctx.reply(botCopy.processingStillRunning(), resultKeyboard()).catch(() => {});
+  }, 15_000);
 
   try {
     const fileUrl = await ctx.telegram.getFileLink(largestPhoto.file_id);
@@ -244,6 +249,8 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
     deps.stateStore.saveSession(markFailed(deps.stateStore.getSession(userId), largestPhoto.file_id));
     await ctx.reply(botCopy.previewFailed(error), resultKeyboard());
   } finally {
+    clearTimeout(longWaitNoticeTimer);
+    stopProgressTicker();
     await cleanupPath(tempDir);
   }
 }
@@ -271,4 +278,31 @@ async function resolveCatalogImagePath(
   } catch {
     return null;
   }
+}
+
+function startChatActionTicker(
+  ctx: MinimalContext,
+  action: "typing" | "upload_photo",
+  intervalMs: number
+): () => void {
+  const send = ctx.sendChatAction;
+  if (!send) {
+    return () => {};
+  }
+
+  let stopped = false;
+  const tick = () => {
+    if (stopped) {
+      return;
+    }
+    void send.call(ctx, action).catch(() => {});
+  };
+
+  tick();
+  const timer = setInterval(tick, intervalMs);
+
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }

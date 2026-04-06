@@ -28,12 +28,16 @@ class MemoryStateStore {
 
 function createCtx(overrides: Record<string, unknown> = {}) {
   const replies: string[] = [];
+  const chatActions: string[] = [];
   const ctx = {
     from: { id: 7 },
     telegram: {
       async getFileLink() {
         return new URL("https://example.com/file.jpg");
       }
+    },
+    async sendChatAction(action: string) {
+      chatActions.push(action);
     },
     async reply(text: string) {
       replies.push(text);
@@ -47,7 +51,7 @@ function createCtx(overrides: Record<string, unknown> = {}) {
     },
     ...overrides
   };
-  return { ctx, replies };
+  return { ctx, replies, chatActions };
 }
 
 describe("bot handlers", () => {
@@ -107,7 +111,7 @@ describe("bot handlers", () => {
     const firstColor = catalog.listPage(0, 10)[0]!;
     const firstColorPickKey = catalog.pickKeyForId(firstColor.id)!;
 
-    const { ctx, replies } = createCtx({
+    const { ctx, replies, chatActions } = createCtx({
       callbackQuery: { data: `pick:${firstColorPickKey}` },
       message: {
         photo: [{ file_id: "f1", file_size: 1_000 }]
@@ -132,6 +136,7 @@ describe("bot handlers", () => {
     expect(replies[0]).toContain("Цвет выбран");
     expect(replies[1]).toContain("Готовлю превью");
     expect(replies[2]).toContain("Фото пока не подходит");
+    expect(chatActions).toContain("upload_photo");
   });
 
   it("returns user to menu from result actions", async () => {
