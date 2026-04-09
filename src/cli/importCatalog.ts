@@ -1,28 +1,41 @@
 import path from "node:path";
+import { stat } from "node:fs/promises";
 
 import { loadImportConfig } from "../config.js";
 import { importCatalog, createDefaultCatalogImporter } from "../catalog/importCatalog.js";
+import { importImageCatalog } from "../catalog/importImageCatalog.js";
 import { AIService } from "../ai/aiService.js";
 
 async function main(): Promise<void> {
-  const pdfPath = process.argv[2];
-  if (!pdfPath) {
-    throw new Error("Usage: npm run import-catalog -- /absolute/path/to/colors.pdf");
+  const sourcePathRaw = process.argv[2];
+  if (!sourcePathRaw) {
+    throw new Error("Usage: npm run import-catalog -- /absolute/path/to/colors.pdf|/absolute/path/to/images_dir");
+  }
+  const sourcePath = path.resolve(sourcePathRaw);
+  const sourceStats = await stat(sourcePath).catch(() => null);
+  if (!sourceStats) {
+    throw new Error(`Source path does not exist: ${sourcePath}`);
   }
 
   const config = loadImportConfig(process.cwd());
-  const ai = config.geminiApiKey
-    ? new AIService({
-        visionModel: config.geminiVisionModel,
-        imageProvider: "gemini",
-        geminiApiKey: config.geminiApiKey,
-        geminiVisionModel: config.geminiVisionModel,
-        geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-image-preview",
-        timeoutMs: 90_000
-      })
-    : null;
-
-  const result = await importCatalog(path.resolve(pdfPath), config.catalogPath, createDefaultCatalogImporter(ai));
+  const result = sourceStats.isDirectory()
+    ? await importImageCatalog(sourcePath, config.catalogPath)
+    : await importCatalog(
+        sourcePath,
+        config.catalogPath,
+        createDefaultCatalogImporter(
+          config.geminiApiKey
+            ? new AIService({
+                visionModel: config.geminiVisionModel,
+                imageProvider: "gemini",
+                geminiApiKey: config.geminiApiKey,
+                geminiVisionModel: config.geminiVisionModel,
+                geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-image-preview",
+                timeoutMs: 90_000
+              })
+            : null
+        )
+      );
   console.log(
     JSON.stringify(
       {

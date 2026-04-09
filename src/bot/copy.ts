@@ -1,10 +1,10 @@
 import type { CatalogColor } from "../types.js";
 
 export const UI_LABELS = {
-  menuPickColor: "🎨 Подобрать цвет",
-  menuSearch: "🔎 Найти цвет",
+  menuPickColor: "✍️ Ввести код цвета",
+  menuSearch: "📚 Каталог кодов",
   menuReset: "↺ Начать заново",
-  resultPickAnotherColor: "🎨 Выбрать другой цвет",
+  resultPickAnotherColor: "✍️ Ввести другой код",
   resultUploadAnotherPhoto: "📷 Загрузить другое фото",
   resultBackToMenu: "🏠 В меню"
 } as const;
@@ -15,9 +15,11 @@ const MENU_ACTION_ALIASES: ReadonlyArray<{ text: string; action: MainMenuAction 
   { text: UI_LABELS.menuPickColor, action: "pick_color" },
   { text: "Выбрать цвет", action: "pick_color" },
   { text: "Подобрать цвет", action: "pick_color" },
+  { text: "Ввести код", action: "pick_color" },
   { text: UI_LABELS.menuSearch, action: "search" },
   { text: "Поиск", action: "search" },
   { text: "Найти цвет", action: "search" },
+  { text: "Каталог", action: "search" },
   { text: UI_LABELS.menuReset, action: "reset" },
   { text: "Сбросить", action: "reset" },
   { text: "Начать заново", action: "reset" }
@@ -42,15 +44,15 @@ export const botCopy = {
     return buildUiMessage({
       title: "✨ Добро пожаловать",
       context:
-        "Помогу выбрать цвет из каталога и покажу превью перекраски Вашей машины по фото.",
-      nextAction: `Нажмите «${UI_LABELS.menuPickColor}».`
+        "Отправьте код цвета из нового каталога JPG, и я сделаю превью перекраски Вашей машины.",
+      nextAction: `Нажмите «${UI_LABELS.menuPickColor}» и отправьте код (например: 7041 или 8237M).`
     });
   },
   catalog(): string {
     return buildUiMessage({
-      title: "🎨 Каталог цветов",
+      title: "📚 Каталог кодов",
       context:
-        "Выберите оттенок кнопкой ниже. После выбора сразу перейдем к загрузке фото машины.",
+        "Выберите код цвета кнопкой ниже. После выбора сразу перейдем к загрузке фото машины.",
       nextAction: "Нажмите на подходящий цвет в списке."
     });
   },
@@ -64,38 +66,38 @@ export const botCopy = {
   },
   search(): string {
     return buildUiMessage({
-      title: "🔎 Поиск цвета",
-      context: "Можно искать по коду или части названия. Пример: 040 или super white.",
-      nextAction: "Отправьте запрос одним сообщением."
+      title: "✍️ Введите код цвета",
+      context: "Код берется из имени файла в каталоге JPG. Пример: 7041, 8237M, 4009M.",
+      nextAction: "Отправьте код цвета одним сообщением."
     });
   },
   reset(): string {
     return buildUiMessage({
       title: "↺ Готово, начали заново",
-      context: "Я сбросил текущий сценарий. Теперь можно выбрать новый цвет или запустить поиск.",
-      nextAction: `Нажмите «${UI_LABELS.menuPickColor}» или «${UI_LABELS.menuSearch}».`
+      context: "Я сбросил текущий сценарий. Теперь нужно снова ввести код цвета.",
+      nextAction: `Нажмите «${UI_LABELS.menuPickColor}» и отправьте код.`
     });
   },
   fallbackMenuHint(): string {
     return buildUiMessage({
       title: "🤝 Подскажу, что дальше",
       context:
-        "Сейчас я жду выбор цвета, поиск или фото после выбора оттенка. Сообщение не потерял.",
+        "Сейчас я жду код цвета или фото машины после выбора кода. Сообщение не потерял.",
       nextAction: "Выберите действие кнопками ниже."
     });
   },
   searchNoResults(query: string): string {
     return buildUiMessage({
       title: "Ничего не нашлось",
-      context: `По запросу «${query}» пока нет совпадений в каталоге.`,
-      nextAction: "Попробуйте другой код или часть названия."
+      context: `Код «${query}» не найден в каталоге.`,
+      nextAction: "Проверьте код в названии файла и отправьте снова."
     });
   },
   searchResults(count: number): string {
     return buildUiMessage({
       title: "Нашел варианты",
-      context: `Подобрал ${count} цвет(а) по Вашему запросу.`,
-      nextAction: "Выберите нужный цвет кнопкой."
+      context: `Подобрал ${count} вариант(а) по введенному коду.`,
+      nextAction: "Выберите точный код кнопкой."
     });
   },
   colorSelected(color: CatalogColor): string {
@@ -112,9 +114,9 @@ export const botCopy = {
   },
   uploadAnotherWithoutColor(): string {
     return buildUiMessage({
-      title: "Сначала выберите цвет",
-      context: "Чтобы продолжить, нужно снова выбрать оттенок из каталога.",
-      nextAction: `Нажмите «${UI_LABELS.menuPickColor}».`
+      title: "Сначала введите код цвета",
+      context: "Чтобы продолжить, нужно снова указать код из каталога.",
+      nextAction: `Нажмите «${UI_LABELS.menuPickColor}» и отправьте код.`
     });
   },
   uploadAnotherPhotoPrompt(): string {
@@ -126,9 +128,9 @@ export const botCopy = {
   },
   selectColorBeforePhoto(): string {
     return buildUiMessage({
-      title: "Сначала выберите цвет",
-      context: "Пока не выбран оттенок, я не смогу корректно сделать превью перекраски.",
-      nextAction: "Откройте каталог через /catalog или кнопку меню."
+      title: "Сначала укажите код цвета",
+      context: "Пока код не выбран, я не смогу корректно сделать превью перекраски.",
+      nextAction: "Введите код цвета командой /search или кнопкой меню."
     });
   },
   photoMissing(): string {

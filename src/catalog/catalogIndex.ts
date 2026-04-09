@@ -6,18 +6,27 @@ export class CatalogIndex {
   private readonly itemsById: Map<string, CatalogColor>;
   private readonly pickKeyById: Map<string, string>;
   private readonly itemsByPickKey: Map<string, CatalogColor>;
+  private readonly itemsByCode: Map<string, CatalogColor[]>;
 
   constructor(items: CatalogColor[]) {
     this.items = [...items];
     this.itemsById = new Map(items.map((item) => [item.id, item]));
     this.pickKeyById = new Map();
     this.itemsByPickKey = new Map();
+    this.itemsByCode = new Map();
 
     for (let index = 0; index < this.items.length; index += 1) {
       const item = this.items[index]!;
       const key = index.toString(36);
       this.pickKeyById.set(item.id, key);
       this.itemsByPickKey.set(key, item);
+
+      const codeKey = normalizeSearchText(item.code);
+      if (codeKey) {
+        const bucket = this.itemsByCode.get(codeKey) ?? [];
+        bucket.push(item);
+        this.itemsByCode.set(codeKey, bucket);
+      }
     }
   }
 
@@ -45,6 +54,14 @@ export class CatalogIndex {
 
   getByPickKey(key: string): CatalogColor | null {
     return this.itemsByPickKey.get(key) ?? null;
+  }
+
+  findByCode(query: string, limit = 10): CatalogColor[] {
+    const key = normalizeSearchText(query);
+    if (!key) {
+      return [];
+    }
+    return (this.itemsByCode.get(key) ?? []).slice(0, limit);
   }
 
   search(query: string, limit = 10): CatalogColor[] {

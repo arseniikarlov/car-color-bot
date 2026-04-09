@@ -4,7 +4,7 @@ import path from "node:path";
 import { Input } from "telegraf";
 
 import { CatalogIndex } from "../catalog/catalogIndex.js";
-import type { ImageGateway } from "../types.js";
+import type { CatalogColor, ImageGateway } from "../types.js";
 import { markAwaitingPhoto, markCompleted, markFailed, markProcessing, resetSession, selectColor, startSearch } from "../state/stateMachine.js";
 import type { StateStore } from "../state/sqliteStateStore.js";
 import { cleanupPath, createTempDir } from "../utils/tempFiles.js";
@@ -52,7 +52,8 @@ interface MinimalContext {
 
 export async function handleStart(ctx: MinimalContext, deps: BotDeps): Promise<void> {
   const userId = requireUserId(ctx);
-  deps.stateStore.saveSession(resetSession(deps.stateStore.getSession(userId)));
+  const reset = resetSession(deps.stateStore.getSession(userId));
+  deps.stateStore.saveSession(startSearch(reset));
   await ctx.reply(botCopy.start(), mainMenuKeyboard());
 }
 
@@ -85,7 +86,8 @@ export async function handleSearchCommand(ctx: MinimalContext, deps: BotDeps): P
 
 export async function handleResetCommand(ctx: MinimalContext, deps: BotDeps): Promise<void> {
   const userId = requireUserId(ctx);
-  deps.stateStore.saveSession(resetSession(deps.stateStore.getSession(userId)));
+  const reset = resetSession(deps.stateStore.getSession(userId));
+  deps.stateStore.saveSession(startSearch(reset));
   await ctx.reply(botCopy.reset(), mainMenuKeyboard());
 }
 
@@ -100,7 +102,7 @@ export async function handleTextMessage(ctx: MinimalContext, deps: BotDeps): Pro
 
   const action = resolveMainMenuAction(text);
   if (action === "pick_color") {
-    await handleCatalogCommand(ctx, deps, 0);
+    await handleSearchCommand(ctx, deps);
     return;
   }
   if (action === "search") {
@@ -116,6 +118,19 @@ export async function handleTextMessage(ctx: MinimalContext, deps: BotDeps): Pro
   const session = deps.stateStore.getSession(userId);
   if (session.state !== "awaiting_search_query") {
     await ctx.reply(botCopy.fallbackMenuHint(), mainMenuKeyboard());
+    return;
+  }
+
+  const exactMatches = deps.catalog.findByCode(text, 10);
+  if (exactMatches.length === 1) {
+    await applyColorSelection(ctx, deps, userId, exactMatches[0]!);
+    return;
+  }
+  if (exactMatches.length > 1) {
+    await ctx.reply(
+      botCopy.searchResults(exactMatches.length),
+      searchResultsKeyboard(exactMatches, (item) => deps.catalog.pickKeyForId(item.id) ?? item.id)
+    );
     return;
   }
 
@@ -146,7 +161,7 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
   }
   if (data === "choose_other") {
     await ctx.answerCbQuery?.();
-    await handleCatalogCommand(ctx, deps, 0);
+    await handleSearchCommand(ctx, deps);
     return;
   }
   if (data === "upload_other") {
@@ -174,16 +189,8 @@ export async function handleCallbackQuery(ctx: MinimalContext, deps: BotDeps): P
       await ctx.answerCbQuery?.(botCopy.answerColorNotFound());
       return;
     }
-    const session = deps.stateStore.getSession(userId);
-    deps.stateStore.saveSession(selectColor(session, color.id));
     await ctx.answerCbQuery?.(botCopy.answerColorSelected());
-    const colorImagePath = await resolveCatalogImagePath(deps.catalogBaseDir, color.page_image);
-    if (colorImagePath) {
-      await ctx.replyWithPhoto(Input.fromLocalFile(colorImagePath), {
-        caption: botCopy.catalogImageCaption(color)
-      });
-    }
-    await ctx.reply(botCopy.colorSelected(color), resultKeyboard());
+    await applyColorSelection(ctx, deps, userId, color);
     return;
   }
 }
@@ -254,6 +261,23 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
     stopProgressTicker();
     await cleanupPath(tempDir);
   }
+}
+
+async function applyColorSelection(
+  ctx: MinimalContext,
+  deps: BotDeps,
+  userId: number,
+  color: CatalogColor
+): Promise<void> {
+  const session = deps.stateStore.getSession(userId);
+  deps.stateStore.saveSession(selectColor(session, color.id));
+  const colorImagePath = await resolveCatalogImagePath(deps.catalogBaseDir, color.page_image);
+  if (colorImagePath) {
+    await ctx.replyWithPhoto(Input.fromLocalFile(colorImagePath), {
+      caption: botCopy.catalogImageCaption(color)
+    });
+  }
+  await ctx.reply(botCopy.colorSelected(color), resultKeyboard());
 }
 
 function requireUserId(ctx: MinimalContext): number {

@@ -68,7 +68,7 @@ describe("bot handlers", () => {
     )
   );
 
-  it("runs start and search flow", async () => {
+  it("runs start and code flow", async () => {
     const store = new MemoryStateStore();
     const ai: ImageGateway = {
       async validateCarPhoto(): Promise<PhotoValidationResult> {
@@ -90,8 +90,8 @@ describe("bot handlers", () => {
     await handleTextMessage(ctx as any, deps);
 
     expect(replies[0]).toContain("Добро пожаловать");
-    expect(replies[1]).toContain("Поиск цвета");
-    expect(replies[2]).toContain("Нашел варианты");
+    expect(replies[1]).toContain("Введите код");
+    expect(replies[2]).toContain("Цвет выбран");
   });
 
   it("handles color selection and invalid photo", async () => {
