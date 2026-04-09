@@ -7,8 +7,8 @@ Telegram-бот, который:
 - показывает картинку страницы каталога для выбранного цвета;
 - принимает фото автомобиля;
 - показывает индикатор прогресса, пока генерируется превью;
-- валидирует фото через `gpt-4o`;
-- генерирует превью перекраски через `gpt-image-1` с учётом реального оттенка свотча из каталога (`HEX/RGB`, если удалось извлечь);
+- валидирует фото через Gemini vision;
+- генерирует превью перекраски через Replicate (или Gemini) с учётом реального оттенка свотча из каталога (`HEX/RGB`, если удалось извлечь);
 - хранит состояние диалога в `SQLite`;
 - импортирует PDF-каталог в `data/catalog.json` через CLI.
   - страницы каталога сохраняются в `data/catalog_pages/` и используются ботом как визуальный превью-источник.
@@ -17,7 +17,7 @@ Telegram-бот, который:
 
 - `src/bot` — Telegram flow, команды и клавиатуры
 - `src/catalog` — импорт PDF, парсинг текста, поиск по каталогу
-- `src/openai` — OpenAI vision/image edit интеграция
+- `src/ai` — Gemini/Replicate интеграция
 - `src/state` — SQLite store и state machine
 
 ## Переменные окружения
@@ -26,12 +26,10 @@ Telegram-бот, который:
 
 ```bash
 TELEGRAM_BOT_TOKEN=...
-OPENAI_API_KEY=...
-IMAGE_PROVIDER=openai
+IMAGE_PROVIDER=replicate
 CATALOG_PATH=./data/catalog.json
 SQLITE_PATH=./data/bot.sqlite
-OPENAI_VISION_MODEL=gpt-4o
-OPENAI_IMAGE_MODEL=gpt-image-1
+GEMINI_VISION_MODEL=gemini-2.5-flash
 GEMINI_API_KEY=...
 GEMINI_IMAGE_MODEL=gemini-3.1-flash-image-preview
 GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
@@ -39,7 +37,7 @@ REPLICATE_API_TOKEN=...
 REPLICATE_IMAGE_MODEL=black-forest-labs/flux-kontext-pro
 REPLICATE_API_BASE=https://api.replicate.com/v1
 MAX_INPUT_IMAGE_MB=10
-OPENAI_TIMEOUT_SEC=90
+AI_TIMEOUT_SEC=90
 ```
 
 Для переключения генерации превью на Gemini:
@@ -49,7 +47,7 @@ IMAGE_PROVIDER=gemini
 GEMINI_API_KEY=...
 ```
 
-В этом режиме в боте остается текущая OpenAI-проверка входного фото, а генерация превью уходит в Gemini image editing.
+В этом режиме и проверка входного фото, и генерация превью выполняются через Gemini.
 
 Для переключения генерации превью на Replicate:
 
@@ -61,7 +59,7 @@ REPLICATE_IMAGE_MODEL=black-forest-labs/flux-kontext-pro
 ```
 
 В этом режиме:
-- OpenAI остается для валидации входного фото и vision-задач импорта;
+- проверка входного фото и vision-задачи импорта выполняются через Gemini;
 - генерация превью выполняется через модель Replicate.
 
 ## Локальный запуск
@@ -93,7 +91,7 @@ npm run dev
 npm run import-catalog -- /absolute/path/to/colors.pdf
 ```
 
-Если текст из PDF извлекается плохо, импортёр использует vision fallback через OpenAI, если задан `OPENAI_API_KEY`.
+Если текст из PDF извлекается плохо, импортёр использует vision fallback через Gemini, если задан `GEMINI_API_KEY`.
 При наличии изображений страниц импортёр также обогащает элементы каталога цветом свотча (HEX/RGB), чтобы превью точнее совпадало с образцом.
 
 ## Команды бота
@@ -129,4 +127,4 @@ npm test
 - парсинг и поиск по каталогу;
 - state machine;
 - импорт с vision fallback;
-- bot handlers с моками Telegram/OpenAI.
+- bot handlers с моками Telegram/AI.

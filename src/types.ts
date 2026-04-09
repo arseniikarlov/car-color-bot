@@ -72,7 +72,7 @@ export interface ExtractedVisionCatalog {
   }>;
 }
 
-export interface OpenAIImageGateway {
+export interface ImageGateway {
   validateCarPhoto(imagePath: string): Promise<PhotoValidationResult>;
   generatePreview(
     imagePath: string,

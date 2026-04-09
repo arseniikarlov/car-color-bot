@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CatalogIndex } from "../src/catalog/catalogIndex.js";
 import { parseCatalogPageText } from "../src/catalog/textParser.js";
 import { handleCallbackQuery, handlePhotoMessage, handleSearchCommand, handleStart, handleTextMessage } from "../src/bot/handlers.js";
-import type { OpenAIImageGateway, PreviewResult, PhotoValidationResult } from "../src/types.js";
+import type { ImageGateway, PreviewResult, PhotoValidationResult } from "../src/types.js";
 import { defaultSession } from "../src/state/stateMachine.js";
 
 class MemoryStateStore {
@@ -70,7 +70,7 @@ describe("bot handlers", () => {
 
   it("runs start and search flow", async () => {
     const store = new MemoryStateStore();
-    const openai: OpenAIImageGateway = {
+    const ai: ImageGateway = {
       async validateCarPhoto(): Promise<PhotoValidationResult> {
         return { is_valid: true, reason: "", view: "front", issues: [] };
       },
@@ -81,7 +81,7 @@ describe("bot handlers", () => {
         return { brand: "", series: "", items: [] };
       }
     };
-    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, openai, maxInputImageMb: 10 };
+    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, ai, maxInputImageMb: 10 };
 
     const { ctx, replies } = createCtx();
     await handleStart(ctx as any, deps);
@@ -96,7 +96,7 @@ describe("bot handlers", () => {
 
   it("handles color selection and invalid photo", async () => {
     const store = new MemoryStateStore();
-    const openai: OpenAIImageGateway = {
+    const ai: ImageGateway = {
       async validateCarPhoto(): Promise<PhotoValidationResult> {
         return { is_valid: false, reason: "Too dark", view: "rear", issues: ["dark"] };
       },
@@ -107,7 +107,7 @@ describe("bot handlers", () => {
         return { brand: "", series: "", items: [] };
       }
     };
-    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, openai, maxInputImageMb: 10 };
+    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, ai, maxInputImageMb: 10 };
     const firstColor = catalog.listPage(0, 10)[0]!;
     const firstColorPickKey = catalog.pickKeyForId(firstColor.id)!;
 
@@ -141,7 +141,7 @@ describe("bot handlers", () => {
 
   it("returns user to menu from result actions", async () => {
     const store = new MemoryStateStore();
-    const openai: OpenAIImageGateway = {
+    const ai: ImageGateway = {
       async validateCarPhoto(): Promise<PhotoValidationResult> {
         return { is_valid: true, reason: "", view: "front", issues: [] };
       },
@@ -152,7 +152,7 @@ describe("bot handlers", () => {
         return { brand: "", series: "", items: [] };
       }
     };
-    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, openai, maxInputImageMb: 10 };
+    const deps = { catalog, catalogBaseDir: "/tmp", stateStore: store as any, ai, maxInputImageMb: 10 };
     const { ctx, replies } = createCtx({
       callbackQuery: { data: "to_menu" }
     });

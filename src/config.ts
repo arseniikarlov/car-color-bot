@@ -5,57 +5,52 @@ loadDotEnv();
 
 export interface AppConfig {
   telegramBotToken: string;
-  openaiApiKey: string;
   catalogPath: string;
   sqlitePath: string;
-  imageProvider: "openai" | "gemini" | "replicate";
-  openaiVisionModel: string;
-  openaiImageModel: string;
+  imageProvider: "gemini" | "replicate";
   geminiApiKey: string | null;
+  geminiVisionModel: string;
   geminiImageModel: string;
   geminiApiBase: string;
   replicateApiToken: string | null;
   replicateImageModel: string;
   replicateApiBase: string;
   maxInputImageMb: number;
-  openaiTimeoutSec: number;
+  aiTimeoutSec: number;
 }
 
 export interface ImportConfig {
-  openaiApiKey: string | null;
-  openaiVisionModel: string;
+  geminiApiKey: string | null;
+  geminiVisionModel: string;
   catalogPath: string;
 }
 
 export function loadAppConfig(cwd = process.cwd()): AppConfig {
   const telegramBotToken = requiredEnv("TELEGRAM_BOT_TOKEN");
-  const openaiApiKey = requiredEnv("OPENAI_API_KEY");
   const catalogPath = resolvePath(cwd, process.env.CATALOG_PATH ?? "./data/catalog.json");
   const sqlitePath = resolvePath(cwd, process.env.SQLITE_PATH ?? "./data/bot.sqlite");
 
   return {
     telegramBotToken,
-    openaiApiKey,
     catalogPath,
     sqlitePath,
     imageProvider: parseImageProvider(process.env.IMAGE_PROVIDER),
-    openaiVisionModel: process.env.OPENAI_VISION_MODEL ?? "gpt-4o",
-    openaiImageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1",
     geminiApiKey: optionalEnv("GEMINI_API_KEY"),
+    geminiVisionModel: process.env.GEMINI_VISION_MODEL ?? "gemini-2.5-flash",
     geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-image-preview",
     geminiApiBase: process.env.GEMINI_API_BASE?.trim() || "https://generativelanguage.googleapis.com/v1beta",
     replicateApiToken: optionalEnv("REPLICATE_API_TOKEN"),
     replicateImageModel: process.env.REPLICATE_IMAGE_MODEL ?? "black-forest-labs/flux-kontext-pro",
     replicateApiBase: process.env.REPLICATE_API_BASE?.trim() || "https://api.replicate.com/v1",
     maxInputImageMb: parsePositiveNumber(process.env.MAX_INPUT_IMAGE_MB, 10),
-    openaiTimeoutSec: parsePositiveNumber(process.env.OPENAI_TIMEOUT_SEC, 90)
+    aiTimeoutSec: parsePositiveNumber(process.env.AI_TIMEOUT_SEC, 90)
   };
 }
 
 export function loadImportConfig(cwd = process.cwd()): ImportConfig {
   return {
-    openaiApiKey: optionalEnv("OPENAI_API_KEY"),
-    openaiVisionModel: process.env.OPENAI_VISION_MODEL ?? "gpt-4o",
+    geminiApiKey: optionalEnv("GEMINI_API_KEY"),
+    geminiVisionModel: process.env.GEMINI_VISION_MODEL ?? "gemini-2.5-flash",
     catalogPath: resolvePath(cwd, process.env.CATALOG_PATH ?? "./data/catalog.json")
   };
 }
@@ -84,16 +79,13 @@ function parsePositiveNumber(raw: string | undefined, fallback: number): number 
   return parsed;
 }
 
-function parseImageProvider(raw: string | undefined): "openai" | "gemini" | "replicate" {
+function parseImageProvider(raw: string | undefined): "gemini" | "replicate" {
   const value = raw?.trim().toLowerCase();
-  if (!value || value === "openai") {
-    return "openai";
+  if (!value || value === "replicate") {
+    return "replicate";
   }
   if (value === "gemini") {
     return "gemini";
-  }
-  if (value === "replicate") {
-    return "replicate";
   }
   throw new Error(`Invalid IMAGE_PROVIDER: ${raw}`);
 }

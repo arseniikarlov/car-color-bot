@@ -4,7 +4,7 @@ import { createBot } from "./bot/createBot.js";
 import { loadCatalog } from "./catalog/loadCatalog.js";
 import { CatalogIndex } from "./catalog/catalogIndex.js";
 import { loadAppConfig } from "./config.js";
-import { OpenAIService } from "./openai/openAIService.js";
+import { AIService } from "./ai/aiService.js";
 import { SQLiteStateStore } from "./state/sqliteStateStore.js";
 
 async function main(): Promise<void> {
@@ -12,25 +12,24 @@ async function main(): Promise<void> {
   const catalog = await loadCatalog(config.catalogPath);
   const catalogIndex = new CatalogIndex(catalog.items);
   const stateStore = new SQLiteStateStore(config.sqlitePath);
-  const openai = new OpenAIService({
-    apiKey: config.openaiApiKey,
-    visionModel: config.openaiVisionModel,
-    imageModel: config.openaiImageModel,
+  const ai = new AIService({
+    visionModel: config.geminiVisionModel,
     imageProvider: config.imageProvider,
     geminiApiKey: config.geminiApiKey,
+    geminiVisionModel: config.geminiVisionModel,
     geminiImageModel: config.geminiImageModel,
     geminiApiBase: config.geminiApiBase,
     replicateApiToken: config.replicateApiToken,
     replicateImageModel: config.replicateImageModel,
     replicateApiBase: config.replicateApiBase,
-    timeoutMs: config.openaiTimeoutSec * 1000
+    timeoutMs: config.aiTimeoutSec * 1000
   });
 
   const bot = createBot(config.telegramBotToken, {
     catalog: catalogIndex,
     catalogBaseDir: path.dirname(config.catalogPath),
     stateStore,
-    openai,
+    ai,
     maxInputImageMb: config.maxInputImageMb
   });
 

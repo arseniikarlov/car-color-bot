@@ -4,7 +4,7 @@ import path from "node:path";
 import { Input } from "telegraf";
 
 import { CatalogIndex } from "../catalog/catalogIndex.js";
-import type { OpenAIImageGateway } from "../types.js";
+import type { ImageGateway } from "../types.js";
 import { markAwaitingPhoto, markCompleted, markFailed, markProcessing, resetSession, selectColor, startSearch } from "../state/stateMachine.js";
 import type { StateStore } from "../state/sqliteStateStore.js";
 import { cleanupPath, createTempDir } from "../utils/tempFiles.js";
@@ -17,7 +17,7 @@ export interface BotDeps {
   catalog: CatalogIndex;
   catalogBaseDir: string;
   stateStore: StateStore;
-  openai: OpenAIImageGateway;
+  ai: ImageGateway;
   maxInputImageMb: number;
   pageSize?: number;
 }
@@ -231,7 +231,7 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
     const buffer = Buffer.from(await response.arrayBuffer());
     await writeFile(inputPath, buffer);
 
-    const validation = await deps.openai.validateCarPhoto(inputPath);
+    const validation = await deps.ai.validateCarPhoto(inputPath);
     if (!validation.is_valid) {
       deps.stateStore.saveSession(markFailed(deps.stateStore.getSession(userId), largestPhoto.file_id));
       await ctx.reply(botCopy.validationFailed(validation.reason), resultKeyboard());
@@ -239,7 +239,7 @@ export async function handlePhotoMessage(ctx: MinimalContext, deps: BotDeps): Pr
     }
 
     const catalogReferenceImagePath = await resolveCatalogImagePath(deps.catalogBaseDir, color.page_image);
-    const preview = await deps.openai.generatePreview(inputPath, color, catalogReferenceImagePath ?? undefined);
+    const preview = await deps.ai.generatePreview(inputPath, color, catalogReferenceImagePath ?? undefined);
     deps.stateStore.saveSession(markCompleted(deps.stateStore.getSession(userId), largestPhoto.file_id));
     await ctx.replyWithPhoto(Input.fromLocalFile(preview.output_image_path), {
       caption: botCopy.previewCaption(color),

@@ -1,7 +1,7 @@
 import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { CatalogColor, CatalogImportResult, ExtractedVisionCatalog, OpenAIImageGateway } from "../types.js";
+import type { CatalogColor, CatalogImportResult, ExtractedVisionCatalog, ImageGateway } from "../types.js";
 import { deduplicateColors, hexToRgb, normalizeHexColor, normalizeRgbColor, normalizeSearchText, toCatalogColor } from "./catalogUtils.js";
 import { extractPdfPageTexts, renderPdfPagesToImages } from "./pdfTools.js";
 import { parseCatalogPageText } from "./textParser.js";
@@ -9,7 +9,7 @@ import { parseCatalogPageText } from "./textParser.js";
 export interface CatalogImporterDeps {
   extractTexts(pdfPath: string): Promise<string[]>;
   renderPages(pdfPath: string): Promise<string[]>;
-  openai: OpenAIImageGateway | null;
+  ai: ImageGateway | null;
 }
 
 export async function importCatalog(
@@ -45,10 +45,10 @@ export async function importCatalog(
     extracted = extracted.map((item) => (pageAsset ? { ...item, page_image: pageAsset } : item));
 
     if (!extracted.length) {
-      if (!deps.openai || !pageImagePath) {
+      if (!deps.ai || !pageImagePath) {
         warnings.push(`Page ${pageNumber}: no text colors extracted and vision fallback unavailable.`);
       } else {
-        const visionData = await deps.openai.extractCatalogColorsFromImage(pageImagePath);
+        const visionData = await deps.ai.extractCatalogColorsFromImage(pageImagePath);
         extracted = visionData.items
           .filter((item) => item.code && item.name)
           .map((item) =>
@@ -69,8 +69,8 @@ export async function importCatalog(
           warnings.push(`Page ${pageNumber}: vision fallback returned no colors.`);
         }
       }
-    } else if (deps.openai && pageImagePath) {
-      extracted = await enrichWithVisionSwatches(extracted, pageImagePath, deps.openai, pageNumber, warnings);
+    } else if (deps.ai && pageImagePath) {
+      extracted = await enrichWithVisionSwatches(extracted, pageImagePath, deps.ai, pageNumber, warnings);
     }
 
     items.push(...extracted);
@@ -100,11 +100,11 @@ export async function importCatalog(
   return result;
 }
 
-export function createDefaultCatalogImporter(openai: OpenAIImageGateway | null): CatalogImporterDeps {
+export function createDefaultCatalogImporter(ai: ImageGateway | null): CatalogImporterDeps {
   return {
     extractTexts: extractPdfPageTexts,
     renderPages: renderPdfPagesToImages,
-    openai
+    ai
   };
 }
 
@@ -146,12 +146,12 @@ type VisionColorItem = ExtractedVisionCatalog["items"][number];
 async function enrichWithVisionSwatches(
   baseColors: CatalogColor[],
   pageImagePath: string,
-  openai: OpenAIImageGateway,
+  ai: ImageGateway,
   pageNumber: number,
   warnings: string[]
 ): Promise<CatalogColor[]> {
   try {
-    const visionData = await openai.extractCatalogColorsFromImage(pageImagePath);
+    const visionData = await ai.extractCatalogColorsFromImage(pageImagePath);
     const byCode = new Map<string, VisionColorItem[]>();
     const byName = new Map<string, VisionColorItem[]>();
 

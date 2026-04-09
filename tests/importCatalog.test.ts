@@ -5,11 +5,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { importCatalog } from "../src/catalog/importCatalog.js";
-import type { OpenAIImageGateway } from "../src/types.js";
+import type { ImageGateway } from "../src/types.js";
 
 describe("importCatalog", () => {
   it("uses text extraction first and vision fallback when needed", async () => {
-    const fakeOpenAI: OpenAIImageGateway = {
+    const fakeAi: ImageGateway = {
       async validateCarPhoto() {
         throw new Error("not used");
       },
@@ -40,7 +40,7 @@ describe("importCatalog", () => {
       async renderPages() {
         return ["/tmp/page-1.png", "/tmp/page-2.png"];
       },
-      openai: fakeOpenAI
+      ai: fakeAi
     });
 
     writes.push(JSON.stringify(result.items));
@@ -77,7 +77,7 @@ describe("importCatalog", () => {
       async renderPages() {
         return [page1, page2];
       },
-      openai: null
+      ai: null
     });
 
     const first = result.items.find((item) => item.code === "A10");
@@ -94,7 +94,7 @@ describe("importCatalog", () => {
     const page1 = path.join(tempDir, "page-1.png");
     await writeFile(page1, Buffer.from("fake-image-1"));
 
-    const fakeOpenAI: OpenAIImageGateway = {
+    const fakeAi: ImageGateway = {
       async validateCarPhoto() {
         throw new Error("not used");
       },
@@ -131,7 +131,7 @@ describe("importCatalog", () => {
       async renderPages() {
         return [page1];
       },
-      openai: fakeOpenAI
+      ai: fakeAi
     });
 
     expect(result.items).toHaveLength(1);

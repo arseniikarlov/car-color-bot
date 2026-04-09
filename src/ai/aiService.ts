@@ -1,24 +1,20 @@
-import { createReadStream } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-
-import OpenAI from "openai";
 
 import type {
   CatalogColor,
   ExtractedVisionCatalog,
-  OpenAIImageGateway,
+  ImageGateway,
   PhotoValidationResult,
   PreviewResult
 } from "../types.js";
 import { hexToRgb, normalizeHexColor, normalizeRgbColor } from "../catalog/catalogUtils.js";
 
-export interface OpenAIServiceOptions {
-  apiKey: string;
+export interface AIServiceOptions {
   visionModel: string;
-  imageModel: string;
-  imageProvider?: "openai" | "gemini" | "replicate";
+  imageProvider?: "gemini" | "replicate";
   geminiApiKey?: string | null;
+  geminiVisionModel?: string;
   geminiImageModel?: string;
   geminiApiBase?: string;
   replicateApiToken?: string | null;
@@ -27,36 +23,27 @@ export interface OpenAIServiceOptions {
   timeoutMs: number;
 }
 
-export class OpenAIService implements OpenAIImageGateway {
-  private readonly client: OpenAI;
-  private readonly apiKey: string;
+export class AIService implements ImageGateway {
   private readonly timeoutMs: number;
-  private readonly visionModel: string;
-  private readonly imageModel: string;
-  private readonly imageProvider: "openai" | "gemini" | "replicate";
+  private readonly imageProvider: "gemini" | "replicate";
   private readonly geminiApiKey: string | null;
+  private readonly geminiVisionModel: string;
   private readonly geminiImageModel: string;
   private readonly geminiApiBase: string;
   private readonly replicateApiToken: string | null;
   private readonly replicateImageModel: string;
   private readonly replicateApiBase: string;
 
-  constructor(options: OpenAIServiceOptions) {
-    this.apiKey = options.apiKey;
+  constructor(options: AIServiceOptions) {
     this.timeoutMs = options.timeoutMs;
-    this.visionModel = options.visionModel;
-    this.imageModel = options.imageModel;
-    this.imageProvider = options.imageProvider ?? "openai";
+    this.imageProvider = options.imageProvider ?? "replicate";
     this.geminiApiKey = options.geminiApiKey?.trim() || null;
+    this.geminiVisionModel = options.geminiVisionModel?.trim() || options.visionModel;
     this.geminiImageModel = options.geminiImageModel?.trim() || "gemini-3.1-flash-image-preview";
     this.geminiApiBase = normalizeApiBase(options.geminiApiBase);
     this.replicateApiToken = options.replicateApiToken?.trim() || null;
     this.replicateImageModel = options.replicateImageModel?.trim() || "black-forest-labs/flux-kontext-pro";
     this.replicateApiBase = normalizeReplicateApiBase(options.replicateApiBase);
-    this.client = new OpenAI({
-      apiKey: options.apiKey,
-      timeout: options.timeoutMs
-    });
 
     if (this.imageProvider === "gemini" && !this.geminiApiKey) {
       throw new Error("GEMINI_API_KEY is required when IMAGE_PROVIDER=gemini");
@@ -67,41 +54,27 @@ export class OpenAIService implements OpenAIImageGateway {
   }
 
   async validateCarPhoto(imagePath: string): Promise<PhotoValidationResult> {
-    const dataUrl = await fileToDataUrl(imagePath);
-    const completion = await this.client.chat.completions.create({
-      model: this.visionModel,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You validate user photos for a car repaint preview bot. Respond with JSON only: " +
-            '{"is_valid":boolean,"reason":string,"view":string,"issues":string[]}. ' +
-            "A valid photo must contain one car, visible body panels, acceptable lighting, and minimal occlusion."
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text:
-                "Validate this car photo. Reject if there are multiple cars, too little body visible, very dark lighting, heavy blur, or strong occlusion."
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: dataUrl
-              }
-            }
-          ]
-        }
-      ]
-    });
-
-    const parsed = safeJsonParse<PhotoValidationResult>(completion.choices[0]?.message?.content);
-    if (!parsed) {
-      throw new Error("OpenAI validation returned invalid JSON");
+    if (!this.geminiApiKey) {
+      return {
+        is_valid: true,
+        reason: "Validation skipped: GEMINI_API_KEY is not configured.",
+        view: "unknown",
+        issues: ["validation_skipped"]
+      };
     }
+
+    const image = await fileToInlineData(imagePath);
+    const prompt = [
+      "You validate user photos for a car repaint preview bot.",
+      'Respond with JSON only: {"is_valid":boolean,"reason":string,"view":string,"issues":string[]}.',
+      "A valid photo must contain one car, visible body panels, acceptable lighting, and minimal occlusion.",
+      "Reject if there are multiple cars, too little body visible, very dark lighting, heavy blur, or strong occlusion."
+    ].join(" ");
+
+    const parsed = await this.requestGeminiJson<PhotoValidationResult>(this.geminiVisionModel, [
+      { text: prompt },
+      { inline_data: image }
+    ]);
 
     return {
       is_valid: Boolean(parsed.is_valid),
@@ -150,16 +123,7 @@ export class OpenAIService implements OpenAIImageGateway {
     const response =
       this.imageProvider === "gemini"
         ? await this.editImageViaGeminiEndpoint(imagePath, prompt, catalogReferenceImagePath)
-        : this.imageProvider === "replicate"
-          ? await this.editImageViaReplicateEndpoint(imagePath, prompt, catalogReferenceImagePath)
-          : isGptImageModel(this.imageModel)
-            ? await this.editImageViaJsonEndpoint(imagePath, prompt, catalogReferenceImagePath)
-            : await this.client.images.edit({
-                model: this.imageModel,
-                image: createReadStream(imagePath) as any,
-                prompt,
-                size: "auto"
-              } as any);
+        : await this.editImageViaReplicateEndpoint(imagePath, prompt, catalogReferenceImagePath);
 
     const base64 = response.data?.[0]?.b64_json;
     if (!base64) {
@@ -175,53 +139,8 @@ export class OpenAIService implements OpenAIImageGateway {
       model:
         this.imageProvider === "gemini"
           ? this.geminiImageModel
-          : this.imageProvider === "replicate"
-            ? this.replicateImageModel
-            : this.imageModel
+          : this.replicateImageModel
     };
-  }
-
-  private async editImageViaJsonEndpoint(
-    imagePath: string,
-    prompt: string,
-    catalogReferenceImagePath?: string
-  ): Promise<{ data?: Array<{ b64_json?: string }> }> {
-    const imageDataUrl = await fileToDataUrl(imagePath);
-    const images: Array<{ image_url: string }> = [{ image_url: imageDataUrl }];
-    if (catalogReferenceImagePath) {
-      try {
-        const catalogColorDataUrl = await fileToDataUrl(catalogReferenceImagePath);
-        images.push({ image_url: catalogColorDataUrl });
-      } catch {
-        // Continue with the main client image if catalog reference image is unavailable.
-      }
-    }
-
-    const response = await fetch("https://api.openai.com/v1/images/edits", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: this.imageModel,
-        images,
-        prompt,
-        size: "auto",
-        output_format: "png"
-      }),
-      signal: AbortSignal.timeout(this.timeoutMs)
-    });
-
-    const json = (await response.json().catch(() => null)) as
-      | { data?: Array<{ b64_json?: string }>; error?: { message?: string } }
-      | null;
-    if (!response.ok) {
-      const errorMessage = json?.error?.message || `OpenAI image edit failed with status ${response.status}`;
-      throw new Error(errorMessage);
-    }
-
-    return json?.data ? { data: json.data } : {};
   }
 
   private async editImageViaGeminiEndpoint(
@@ -298,6 +217,64 @@ export class OpenAIService implements OpenAIImageGateway {
     }
 
     throw new Error("Gemini image edit returned an empty result");
+  }
+
+  private async requestGeminiJson<T>(
+    model: string,
+    parts: Array<
+      | { text: string }
+      | {
+          inline_data: {
+            mime_type: string;
+            data: string;
+          };
+        }
+    >
+  ): Promise<T> {
+    if (!this.geminiApiKey) {
+      throw new Error("GEMINI_API_KEY is not configured");
+    }
+
+    const endpoint = `${this.geminiApiBase}/models/${encodeURIComponent(model)}:generateContent` +
+      `?key=${encodeURIComponent(this.geminiApiKey)}`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      }),
+      signal: AbortSignal.timeout(this.timeoutMs)
+    });
+
+    const json = (await response.json().catch(() => null)) as
+      | {
+          candidates?: Array<{
+            content?: {
+              parts?: Array<{
+                text?: string;
+              }>;
+            };
+          }>;
+          error?: { message?: string };
+        }
+      | null;
+
+    if (!response.ok) {
+      const errorMessage = json?.error?.message || `Gemini request failed with status ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    const textResult = json?.candidates?.[0]?.content?.parts?.find((part) => typeof part.text === "string")?.text;
+    const parsed = safeJsonParse<T>(textResult);
+    if (!parsed) {
+      throw new Error("Gemini returned invalid JSON");
+    }
+    return parsed;
   }
 
   private async editImageViaReplicateEndpoint(
@@ -482,42 +459,25 @@ export class OpenAIService implements OpenAIImageGateway {
   }
 
   async extractCatalogColorsFromImage(imagePath: string): Promise<ExtractedVisionCatalog> {
-    const dataUrl = await fileToDataUrl(imagePath);
-    const completion = await this.client.chat.completions.create({
-      model: this.visionModel,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You extract paint catalog entries from a catalog page image. Return JSON only with shape " +
-            '{"brand":string,"series":string,"items":[{"code":string,"name":string,"swatch_hex":string,"swatch_rgb":{"r":number,"g":number,"b":number}}]}. ' +
-            "For each row, read the corresponding color swatch and provide its closest swatch_hex and swatch_rgb. " +
-            "Do not hallucinate codes or names."
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text:
-                "Read this catalog page and extract each visible color entry. Infer brand and series from the page heading if possible. " +
-                "For each extracted color, estimate the swatch color from the page and return hex/rgb."
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: dataUrl
-              }
-            }
-          ]
-        }
-      ]
-    });
+    if (!this.geminiApiKey) {
+      throw new Error("GEMINI_API_KEY is required for catalog vision extraction");
+    }
 
-    const parsed = safeJsonParse<ExtractedVisionCatalog>(completion.choices[0]?.message?.content);
+    const image = await fileToInlineData(imagePath);
+    const prompt = [
+      "You extract paint catalog entries from a catalog page image.",
+      'Return JSON only with shape {"brand":string,"series":string,"items":[{"code":string,"name":string,"swatch_hex":string,"swatch_rgb":{"r":number,"g":number,"b":number}}]}.',
+      "For each row, read the corresponding color swatch and provide its closest swatch_hex and swatch_rgb.",
+      "Do not hallucinate codes or names.",
+      "Read this catalog page and extract each visible color entry. Infer brand and series from the page heading if possible."
+    ].join(" ");
+
+    const parsed = await this.requestGeminiJson<ExtractedVisionCatalog>(this.geminiVisionModel, [
+      { text: prompt },
+      { inline_data: image }
+    ]);
     if (!parsed || !Array.isArray(parsed.items)) {
-      throw new Error("OpenAI catalog extraction returned invalid JSON");
+      throw new Error("Gemini catalog extraction returned invalid JSON");
     }
 
     return {
@@ -552,16 +512,6 @@ function formatSwatchHint(
     return rgbText;
   }
   return "unknown";
-}
-
-function isGptImageModel(model: string): boolean {
-  return model.startsWith("gpt-image-") || model === "chatgpt-image-latest";
-}
-
-async function fileToDataUrl(filePath: string): Promise<string> {
-  const buffer = await readFile(filePath);
-  const mimeType = detectMimeType(filePath);
-  return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
 async function fileToInlineData(filePath: string): Promise<{ mime_type: string; data: string }> {

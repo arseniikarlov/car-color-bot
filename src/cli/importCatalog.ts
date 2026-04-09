@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { loadImportConfig } from "../config.js";
 import { importCatalog, createDefaultCatalogImporter } from "../catalog/importCatalog.js";
-import { OpenAIService } from "../openai/openAIService.js";
+import { AIService } from "../ai/aiService.js";
 
 async function main(): Promise<void> {
   const pdfPath = process.argv[2];
@@ -11,16 +11,18 @@ async function main(): Promise<void> {
   }
 
   const config = loadImportConfig(process.cwd());
-  const openai = config.openaiApiKey
-    ? new OpenAIService({
-        apiKey: config.openaiApiKey,
-        visionModel: config.openaiVisionModel,
-        imageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1",
+  const ai = config.geminiApiKey
+    ? new AIService({
+        visionModel: config.geminiVisionModel,
+        imageProvider: "gemini",
+        geminiApiKey: config.geminiApiKey,
+        geminiVisionModel: config.geminiVisionModel,
+        geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-image-preview",
         timeoutMs: 90_000
       })
     : null;
 
-  const result = await importCatalog(path.resolve(pdfPath), config.catalogPath, createDefaultCatalogImporter(openai));
+  const result = await importCatalog(path.resolve(pdfPath), config.catalogPath, createDefaultCatalogImporter(ai));
   console.log(
     JSON.stringify(
       {
