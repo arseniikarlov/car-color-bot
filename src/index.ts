@@ -16,6 +16,10 @@ async function main(): Promise<void> {
     apiKey: config.openaiApiKey,
     visionModel: config.openaiVisionModel,
     imageModel: config.openaiImageModel,
+    imageProvider: config.imageProvider,
+    geminiApiKey: config.geminiApiKey,
+    geminiImageModel: config.geminiImageModel,
+    geminiApiBase: config.geminiApiBase,
     timeoutMs: config.openaiTimeoutSec * 1000
   });
 

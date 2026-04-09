@@ -8,8 +8,12 @@ export interface AppConfig {
   openaiApiKey: string;
   catalogPath: string;
   sqlitePath: string;
+  imageProvider: "openai" | "gemini";
   openaiVisionModel: string;
   openaiImageModel: string;
+  geminiApiKey: string | null;
+  geminiImageModel: string;
+  geminiApiBase: string;
   maxInputImageMb: number;
   openaiTimeoutSec: number;
 }
@@ -31,8 +35,12 @@ export function loadAppConfig(cwd = process.cwd()): AppConfig {
     openaiApiKey,
     catalogPath,
     sqlitePath,
+    imageProvider: parseImageProvider(process.env.IMAGE_PROVIDER),
     openaiVisionModel: process.env.OPENAI_VISION_MODEL ?? "gpt-4o",
     openaiImageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1",
+    geminiApiKey: optionalEnv("GEMINI_API_KEY"),
+    geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-image-preview",
+    geminiApiBase: process.env.GEMINI_API_BASE?.trim() || "https://generativelanguage.googleapis.com/v1beta",
     maxInputImageMb: parsePositiveNumber(process.env.MAX_INPUT_IMAGE_MB, 10),
     openaiTimeoutSec: parsePositiveNumber(process.env.OPENAI_TIMEOUT_SEC, 90)
   };
@@ -68,6 +76,17 @@ function parsePositiveNumber(raw: string | undefined, fallback: number): number 
     throw new Error(`Invalid positive number: ${raw}`);
   }
   return parsed;
+}
+
+function parseImageProvider(raw: string | undefined): "openai" | "gemini" {
+  const value = raw?.trim().toLowerCase();
+  if (!value || value === "openai") {
+    return "openai";
+  }
+  if (value === "gemini") {
+    return "gemini";
+  }
+  throw new Error(`Invalid IMAGE_PROVIDER: ${raw}`);
 }
 
 function resolvePath(cwd: string, value: string): string {

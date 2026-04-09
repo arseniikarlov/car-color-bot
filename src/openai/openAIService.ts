@@ -17,6 +17,10 @@ export interface OpenAIServiceOptions {
   apiKey: string;
   visionModel: string;
   imageModel: string;
+  imageProvider?: "openai" | "gemini";
+  geminiApiKey?: string | null;
+  geminiImageModel?: string;
+  geminiApiBase?: string;
   timeoutMs: number;
 }
 
@@ -26,16 +30,28 @@ export class OpenAIService implements OpenAIImageGateway {
   private readonly timeoutMs: number;
   private readonly visionModel: string;
   private readonly imageModel: string;
+  private readonly imageProvider: "openai" | "gemini";
+  private readonly geminiApiKey: string | null;
+  private readonly geminiImageModel: string;
+  private readonly geminiApiBase: string;
 
   constructor(options: OpenAIServiceOptions) {
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs;
     this.visionModel = options.visionModel;
     this.imageModel = options.imageModel;
+    this.imageProvider = options.imageProvider ?? "openai";
+    this.geminiApiKey = options.geminiApiKey?.trim() || null;
+    this.geminiImageModel = options.geminiImageModel?.trim() || "gemini-3.1-flash-image-preview";
+    this.geminiApiBase = normalizeApiBase(options.geminiApiBase);
     this.client = new OpenAI({
       apiKey: options.apiKey,
       timeout: options.timeoutMs
     });
+
+    if (this.imageProvider === "gemini" && !this.geminiApiKey) {
+      throw new Error("GEMINI_API_KEY is required when IMAGE_PROVIDER=gemini");
+    }
   }
 
   async validateCarPhoto(imagePath: string): Promise<PhotoValidationResult> {
@@ -113,14 +129,17 @@ export class OpenAIService implements OpenAIImageGateway {
       "Output must look identical to the original photo except for body paint color."
     ].join(" ");
 
-    const response = isGptImageModel(this.imageModel)
-      ? await this.editImageViaJsonEndpoint(imagePath, prompt, catalogReferenceImagePath)
-      : await this.client.images.edit({
-          model: this.imageModel,
-          image: createReadStream(imagePath) as any,
-          prompt,
-          size: "auto"
-        } as any);
+    const response =
+      this.imageProvider === "gemini"
+        ? await this.editImageViaGeminiEndpoint(imagePath, prompt, catalogReferenceImagePath)
+        : isGptImageModel(this.imageModel)
+          ? await this.editImageViaJsonEndpoint(imagePath, prompt, catalogReferenceImagePath)
+          : await this.client.images.edit({
+              model: this.imageModel,
+              image: createReadStream(imagePath) as any,
+              prompt,
+              size: "auto"
+            } as any);
 
     const base64 = response.data?.[0]?.b64_json;
     if (!base64) {
@@ -133,7 +152,7 @@ export class OpenAIService implements OpenAIImageGateway {
     return {
       output_image_path: outputPath,
       prompt_version: "v4-stable-color-only",
-      model: this.imageModel
+      model: this.imageProvider === "gemini" ? this.geminiImageModel : this.imageModel
     };
   }
 
@@ -178,6 +197,82 @@ export class OpenAIService implements OpenAIImageGateway {
     }
 
     return json?.data ? { data: json.data } : {};
+  }
+
+  private async editImageViaGeminiEndpoint(
+    imagePath: string,
+    prompt: string,
+    catalogReferenceImagePath?: string
+  ): Promise<{ data?: Array<{ b64_json?: string }> }> {
+    const parts: Array<
+      | { text: string }
+      | {
+          inline_data: {
+            mime_type: string;
+            data: string;
+          };
+        }
+    > = [];
+
+    const carImage = await fileToInlineData(imagePath);
+    parts.push({ inline_data: carImage });
+
+    if (catalogReferenceImagePath) {
+      try {
+        const refImage = await fileToInlineData(catalogReferenceImagePath);
+        parts.push({ inline_data: refImage });
+      } catch {
+        // Keep edit flow working even if reference image cannot be read.
+      }
+    }
+
+    parts.push({ text: prompt });
+
+    const endpoint =
+      `${this.geminiApiBase}/models/${encodeURIComponent(this.geminiImageModel)}:generateContent` +
+      `?key=${encodeURIComponent(this.geminiApiKey ?? "")}`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: {
+          responseModalities: ["IMAGE"]
+        }
+      }),
+      signal: AbortSignal.timeout(this.timeoutMs)
+    });
+
+    const json = (await response.json().catch(() => null)) as
+      | {
+          candidates?: Array<{
+            content?: {
+              parts?: Array<{
+                inline_data?: { data?: string };
+                inlineData?: { data?: string };
+              }>;
+            };
+          }>;
+          error?: { message?: string };
+        }
+      | null;
+
+    if (!response.ok) {
+      const errorMessage = json?.error?.message || `Gemini image edit failed with status ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    const resultParts = json?.candidates?.[0]?.content?.parts ?? [];
+    for (const part of resultParts) {
+      const imageBase64 = part.inlineData?.data ?? part.inline_data?.data;
+      if (imageBase64) {
+        return { data: [{ b64_json: imageBase64 }] };
+      }
+    }
+
+    throw new Error("Gemini image edit returned an empty result");
   }
 
   async extractCatalogColorsFromImage(imagePath: string): Promise<ExtractedVisionCatalog> {
@@ -259,10 +354,26 @@ function isGptImageModel(model: string): boolean {
 
 async function fileToDataUrl(filePath: string): Promise<string> {
   const buffer = await readFile(filePath);
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeType =
-    ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+  const mimeType = detectMimeType(filePath);
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+async function fileToInlineData(filePath: string): Promise<{ mime_type: string; data: string }> {
+  const buffer = await readFile(filePath);
+  return {
+    mime_type: detectMimeType(filePath),
+    data: buffer.toString("base64")
+  };
+}
+
+function detectMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+}
+
+function normalizeApiBase(raw: string | undefined): string {
+  const base = raw?.trim() || "https://generativelanguage.googleapis.com/v1beta";
+  return base.replace(/\/+$/u, "");
 }
 
 function safeJsonParse<T>(content: string | null | undefined): T | null {

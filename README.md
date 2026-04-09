@@ -27,13 +27,26 @@ Telegram-бот, который:
 ```bash
 TELEGRAM_BOT_TOKEN=...
 OPENAI_API_KEY=...
+IMAGE_PROVIDER=openai
 CATALOG_PATH=./data/catalog.json
 SQLITE_PATH=./data/bot.sqlite
 OPENAI_VISION_MODEL=gpt-4o
 OPENAI_IMAGE_MODEL=gpt-image-1
+GEMINI_API_KEY=...
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-image-preview
+GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
 MAX_INPUT_IMAGE_MB=10
 OPENAI_TIMEOUT_SEC=90
 ```
+
+Для переключения генерации превью на Gemini:
+
+```bash
+IMAGE_PROVIDER=gemini
+GEMINI_API_KEY=...
+```
+
+В этом режиме в боте остается текущая OpenAI-проверка входного фото, а генерация превью уходит в Gemini image editing.
 
 ## Локальный запуск
 
