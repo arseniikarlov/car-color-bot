@@ -8,12 +8,15 @@ export interface AppConfig {
   openaiApiKey: string;
   catalogPath: string;
   sqlitePath: string;
-  imageProvider: "openai" | "gemini";
+  imageProvider: "openai" | "gemini" | "replicate";
   openaiVisionModel: string;
   openaiImageModel: string;
   geminiApiKey: string | null;
   geminiImageModel: string;
   geminiApiBase: string;
+  replicateApiToken: string | null;
+  replicateImageModel: string;
+  replicateApiBase: string;
   maxInputImageMb: number;
   openaiTimeoutSec: number;
 }
@@ -41,6 +44,9 @@ export function loadAppConfig(cwd = process.cwd()): AppConfig {
     geminiApiKey: optionalEnv("GEMINI_API_KEY"),
     geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-image-preview",
     geminiApiBase: process.env.GEMINI_API_BASE?.trim() || "https://generativelanguage.googleapis.com/v1beta",
+    replicateApiToken: optionalEnv("REPLICATE_API_TOKEN"),
+    replicateImageModel: process.env.REPLICATE_IMAGE_MODEL ?? "black-forest-labs/flux-kontext-pro",
+    replicateApiBase: process.env.REPLICATE_API_BASE?.trim() || "https://api.replicate.com/v1",
     maxInputImageMb: parsePositiveNumber(process.env.MAX_INPUT_IMAGE_MB, 10),
     openaiTimeoutSec: parsePositiveNumber(process.env.OPENAI_TIMEOUT_SEC, 90)
   };
@@ -78,13 +84,16 @@ function parsePositiveNumber(raw: string | undefined, fallback: number): number 
   return parsed;
 }
 
-function parseImageProvider(raw: string | undefined): "openai" | "gemini" {
+function parseImageProvider(raw: string | undefined): "openai" | "gemini" | "replicate" {
   const value = raw?.trim().toLowerCase();
   if (!value || value === "openai") {
     return "openai";
   }
   if (value === "gemini") {
     return "gemini";
+  }
+  if (value === "replicate") {
+    return "replicate";
   }
   throw new Error(`Invalid IMAGE_PROVIDER: ${raw}`);
 }

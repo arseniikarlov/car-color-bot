@@ -35,6 +35,9 @@ OPENAI_IMAGE_MODEL=gpt-image-1
 GEMINI_API_KEY=...
 GEMINI_IMAGE_MODEL=gemini-3.1-flash-image-preview
 GEMINI_API_BASE=https://generativelanguage.googleapis.com/v1beta
+REPLICATE_API_TOKEN=...
+REPLICATE_IMAGE_MODEL=black-forest-labs/flux-kontext-pro
+REPLICATE_API_BASE=https://api.replicate.com/v1
 MAX_INPUT_IMAGE_MB=10
 OPENAI_TIMEOUT_SEC=90
 ```
@@ -47,6 +50,19 @@ GEMINI_API_KEY=...
 ```
 
 В этом режиме в боте остается текущая OpenAI-проверка входного фото, а генерация превью уходит в Gemini image editing.
+
+Для переключения генерации превью на Replicate:
+
+```bash
+IMAGE_PROVIDER=replicate
+REPLICATE_API_TOKEN=...
+# опционально: можно указать другую image-edit модель Replicate
+REPLICATE_IMAGE_MODEL=black-forest-labs/flux-kontext-pro
+```
+
+В этом режиме:
+- OpenAI остается для валидации входного фото и vision-задач импорта;
+- генерация превью выполняется через модель Replicate.
 
 ## Локальный запуск
 

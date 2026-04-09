@@ -20,6 +20,9 @@ async function main(): Promise<void> {
     geminiApiKey: config.geminiApiKey,
     geminiImageModel: config.geminiImageModel,
     geminiApiBase: config.geminiApiBase,
+    replicateApiToken: config.replicateApiToken,
+    replicateImageModel: config.replicateImageModel,
+    replicateApiBase: config.replicateApiBase,
     timeoutMs: config.openaiTimeoutSec * 1000
   });
 
