@@ -13,12 +13,6 @@ async function main(): Promise<void> {
   const catalogIndex = new CatalogIndex(catalog.items);
   const stateStore = new SQLiteStateStore(config.sqlitePath);
   const ai = new AIService({
-    visionModel: config.geminiVisionModel,
-    imageProvider: config.imageProvider,
-    geminiApiKey: config.geminiApiKey,
-    geminiVisionModel: config.geminiVisionModel,
-    geminiImageModel: config.geminiImageModel,
-    geminiApiBase: config.geminiApiBase,
     replicateApiToken: config.replicateApiToken,
     replicateImageModel: config.replicateImageModel,
     replicateApiBase: config.replicateApiBase,

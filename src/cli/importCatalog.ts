@@ -4,7 +4,6 @@ import { stat } from "node:fs/promises";
 import { loadImportConfig } from "../config.js";
 import { importCatalog, createDefaultCatalogImporter } from "../catalog/importCatalog.js";
 import { importImageCatalog } from "../catalog/importImageCatalog.js";
-import { AIService } from "../ai/aiService.js";
 
 async function main(): Promise<void> {
   const sourcePathRaw = process.argv[2];
@@ -23,18 +22,7 @@ async function main(): Promise<void> {
     : await importCatalog(
         sourcePath,
         config.catalogPath,
-        createDefaultCatalogImporter(
-          config.geminiApiKey
-            ? new AIService({
-                visionModel: config.geminiVisionModel,
-                imageProvider: "gemini",
-                geminiApiKey: config.geminiApiKey,
-                geminiVisionModel: config.geminiVisionModel,
-                geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-image-preview",
-                timeoutMs: 90_000
-              })
-            : null
-        )
+        createDefaultCatalogImporter(null)
       );
   console.log(
     JSON.stringify(

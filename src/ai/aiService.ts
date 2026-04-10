@@ -11,12 +11,6 @@ import type {
 import { hexToRgb, normalizeHexColor, normalizeRgbColor } from "../catalog/catalogUtils.js";
 
 export interface AIServiceOptions {
-  visionModel: string;
-  imageProvider?: "gemini" | "replicate";
-  geminiApiKey?: string | null;
-  geminiVisionModel?: string;
-  geminiImageModel?: string;
-  geminiApiBase?: string;
   replicateApiToken?: string | null;
   replicateImageModel?: string;
   replicateApiBase?: string;
@@ -25,62 +19,27 @@ export interface AIServiceOptions {
 
 export class AIService implements ImageGateway {
   private readonly timeoutMs: number;
-  private readonly imageProvider: "gemini" | "replicate";
-  private readonly geminiApiKey: string | null;
-  private readonly geminiVisionModel: string;
-  private readonly geminiImageModel: string;
-  private readonly geminiApiBase: string;
   private readonly replicateApiToken: string | null;
   private readonly replicateImageModel: string;
   private readonly replicateApiBase: string;
 
   constructor(options: AIServiceOptions) {
     this.timeoutMs = options.timeoutMs;
-    this.imageProvider = options.imageProvider ?? "replicate";
-    this.geminiApiKey = options.geminiApiKey?.trim() || null;
-    this.geminiVisionModel = options.geminiVisionModel?.trim() || options.visionModel;
-    this.geminiImageModel = options.geminiImageModel?.trim() || "gemini-3.1-flash-image-preview";
-    this.geminiApiBase = normalizeApiBase(options.geminiApiBase);
     this.replicateApiToken = options.replicateApiToken?.trim() || null;
     this.replicateImageModel = options.replicateImageModel?.trim() || "black-forest-labs/flux-kontext-pro";
     this.replicateApiBase = normalizeReplicateApiBase(options.replicateApiBase);
 
-    if (this.imageProvider === "gemini" && !this.geminiApiKey) {
-      throw new Error("GEMINI_API_KEY is required when IMAGE_PROVIDER=gemini");
-    }
-    if (this.imageProvider === "replicate" && !this.replicateApiToken) {
-      throw new Error("REPLICATE_API_TOKEN is required when IMAGE_PROVIDER=replicate");
+    if (!this.replicateApiToken) {
+      throw new Error("REPLICATE_API_TOKEN is required");
     }
   }
 
-  async validateCarPhoto(imagePath: string): Promise<PhotoValidationResult> {
-    if (!this.geminiApiKey) {
-      return {
-        is_valid: true,
-        reason: "Validation skipped: GEMINI_API_KEY is not configured.",
-        view: "unknown",
-        issues: ["validation_skipped"]
-      };
-    }
-
-    const image = await fileToInlineData(imagePath);
-    const prompt = [
-      "You validate user photos for a car repaint preview bot.",
-      'Respond with JSON only: {"is_valid":boolean,"reason":string,"view":string,"issues":string[]}.',
-      "A valid photo must contain one car, visible body panels, acceptable lighting, and minimal occlusion.",
-      "Reject if there are multiple cars, too little body visible, very dark lighting, heavy blur, or strong occlusion."
-    ].join(" ");
-
-    const parsed = await this.requestGeminiJson<PhotoValidationResult>(this.geminiVisionModel, [
-      { text: prompt },
-      { inline_data: image }
-    ]);
-
+  async validateCarPhoto(_imagePath: string): Promise<PhotoValidationResult> {
     return {
-      is_valid: Boolean(parsed.is_valid),
-      reason: parsed.reason?.trim() || "Unable to validate the image",
-      view: parsed.view?.trim() || "unknown",
-      issues: Array.isArray(parsed.issues) ? parsed.issues.map((item) => String(item)) : []
+      is_valid: true,
+      reason: "Validation skipped in replicate-only mode.",
+      view: "unknown",
+      issues: ["validation_skipped_replicate_only"]
     };
   }
 
@@ -89,8 +48,7 @@ export class AIService implements ImageGateway {
     color: CatalogColor,
     catalogReferenceImagePath?: string
   ): Promise<PreviewResult> {
-    const canUseCatalogReferenceImage =
-      this.imageProvider !== "replicate" || supportsReplicateMultiImageModel(this.replicateImageModel);
+    const canUseCatalogReferenceImage = supportsReplicateMultiImageModel(this.replicateImageModel);
     const shouldUseCatalogReferenceImage = Boolean(catalogReferenceImagePath && canUseCatalogReferenceImage);
 
     const swatchHex = normalizeHexColor(color.swatch_hex);
@@ -120,10 +78,7 @@ export class AIService implements ImageGateway {
       "Output must look identical to the original photo except for body paint color."
     ].join(" ");
 
-    const response =
-      this.imageProvider === "gemini"
-        ? await this.editImageViaGeminiEndpoint(imagePath, prompt, catalogReferenceImagePath)
-        : await this.editImageViaReplicateEndpoint(imagePath, prompt, catalogReferenceImagePath);
+    const response = await this.editImageViaReplicateEndpoint(imagePath, prompt, catalogReferenceImagePath);
 
     const base64 = response.data?.[0]?.b64_json;
     if (!base64) {
@@ -136,145 +91,8 @@ export class AIService implements ImageGateway {
     return {
       output_image_path: outputPath,
       prompt_version: "v4-stable-color-only",
-      model:
-        this.imageProvider === "gemini"
-          ? this.geminiImageModel
-          : this.replicateImageModel
+      model: this.replicateImageModel
     };
-  }
-
-  private async editImageViaGeminiEndpoint(
-    imagePath: string,
-    prompt: string,
-    catalogReferenceImagePath?: string
-  ): Promise<{ data?: Array<{ b64_json?: string }> }> {
-    const parts: Array<
-      | { text: string }
-      | {
-          inline_data: {
-            mime_type: string;
-            data: string;
-          };
-        }
-    > = [];
-
-    const carImage = await fileToInlineData(imagePath);
-    parts.push({ inline_data: carImage });
-
-    if (catalogReferenceImagePath) {
-      try {
-        const refImage = await fileToInlineData(catalogReferenceImagePath);
-        parts.push({ inline_data: refImage });
-      } catch {
-        // Keep edit flow working even if reference image cannot be read.
-      }
-    }
-
-    parts.push({ text: prompt });
-
-    const endpoint =
-      `${this.geminiApiBase}/models/${encodeURIComponent(this.geminiImageModel)}:generateContent` +
-      `?key=${encodeURIComponent(this.geminiApiKey ?? "")}`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          responseModalities: ["IMAGE"]
-        }
-      }),
-      signal: AbortSignal.timeout(this.timeoutMs)
-    });
-
-    const json = (await response.json().catch(() => null)) as
-      | {
-          candidates?: Array<{
-            content?: {
-              parts?: Array<{
-                inline_data?: { data?: string };
-                inlineData?: { data?: string };
-              }>;
-            };
-          }>;
-          error?: { message?: string };
-        }
-      | null;
-
-    if (!response.ok) {
-      const errorMessage = json?.error?.message || `Gemini image edit failed with status ${response.status}`;
-      throw new Error(errorMessage);
-    }
-
-    const resultParts = json?.candidates?.[0]?.content?.parts ?? [];
-    for (const part of resultParts) {
-      const imageBase64 = part.inlineData?.data ?? part.inline_data?.data;
-      if (imageBase64) {
-        return { data: [{ b64_json: imageBase64 }] };
-      }
-    }
-
-    throw new Error("Gemini image edit returned an empty result");
-  }
-
-  private async requestGeminiJson<T>(
-    model: string,
-    parts: Array<
-      | { text: string }
-      | {
-          inline_data: {
-            mime_type: string;
-            data: string;
-          };
-        }
-    >
-  ): Promise<T> {
-    if (!this.geminiApiKey) {
-      throw new Error("GEMINI_API_KEY is not configured");
-    }
-
-    const endpoint = `${this.geminiApiBase}/models/${encodeURIComponent(model)}:generateContent` +
-      `?key=${encodeURIComponent(this.geminiApiKey)}`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          responseMimeType: "application/json"
-        }
-      }),
-      signal: AbortSignal.timeout(this.timeoutMs)
-    });
-
-    const json = (await response.json().catch(() => null)) as
-      | {
-          candidates?: Array<{
-            content?: {
-              parts?: Array<{
-                text?: string;
-              }>;
-            };
-          }>;
-          error?: { message?: string };
-        }
-      | null;
-
-    if (!response.ok) {
-      const errorMessage = json?.error?.message || `Gemini request failed with status ${response.status}`;
-      throw new Error(errorMessage);
-    }
-
-    const textResult = json?.candidates?.[0]?.content?.parts?.find((part) => typeof part.text === "string")?.text;
-    const parsed = safeJsonParse<T>(textResult);
-    if (!parsed) {
-      throw new Error("Gemini returned invalid JSON");
-    }
-    return parsed;
   }
 
   private async editImageViaReplicateEndpoint(
@@ -459,41 +277,8 @@ export class AIService implements ImageGateway {
   }
 
   async extractCatalogColorsFromImage(imagePath: string): Promise<ExtractedVisionCatalog> {
-    if (!this.geminiApiKey) {
-      throw new Error("GEMINI_API_KEY is required for catalog vision extraction");
-    }
-
-    const image = await fileToInlineData(imagePath);
-    const prompt = [
-      "You extract paint catalog entries from a catalog page image.",
-      'Return JSON only with shape {"brand":string,"series":string,"items":[{"code":string,"name":string,"swatch_hex":string,"swatch_rgb":{"r":number,"g":number,"b":number}}]}.',
-      "For each row, read the corresponding color swatch and provide its closest swatch_hex and swatch_rgb.",
-      "Do not hallucinate codes or names.",
-      "Read this catalog page and extract each visible color entry. Infer brand and series from the page heading if possible."
-    ].join(" ");
-
-    const parsed = await this.requestGeminiJson<ExtractedVisionCatalog>(this.geminiVisionModel, [
-      { text: prompt },
-      { inline_data: image }
-    ]);
-    if (!parsed || !Array.isArray(parsed.items)) {
-      throw new Error("Gemini catalog extraction returned invalid JSON");
-    }
-
-    return {
-      brand: parsed.brand?.trim() ?? "",
-      series: parsed.series?.trim() ?? "",
-      items: parsed.items.map((item) => {
-        const swatchHex = normalizeHexColor(item.swatch_hex);
-        const swatchRgb = normalizeRgbColor(item.swatch_rgb);
-        return {
-          code: String(item.code ?? "").trim(),
-          name: String(item.name ?? "").trim(),
-          ...(swatchHex ? { swatch_hex: swatchHex } : {}),
-          ...(swatchRgb ? { swatch_rgb: swatchRgb } : {})
-        };
-      })
-    };
+    void imagePath;
+    throw new Error("Catalog vision extraction is disabled in replicate-only mode.");
   }
 }
 
@@ -514,22 +299,9 @@ function formatSwatchHint(
   return "unknown";
 }
 
-async function fileToInlineData(filePath: string): Promise<{ mime_type: string; data: string }> {
-  const buffer = await readFile(filePath);
-  return {
-    mime_type: detectMimeType(filePath),
-    data: buffer.toString("base64")
-  };
-}
-
 function detectMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   return ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
-}
-
-function normalizeApiBase(raw: string | undefined): string {
-  const base = raw?.trim() || "https://generativelanguage.googleapis.com/v1beta";
-  return base.replace(/\/+$/u, "");
 }
 
 function normalizeReplicateApiBase(raw: string | undefined): string {
@@ -676,16 +448,4 @@ function formatReplicateError(value: unknown): string | null {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function safeJsonParse<T>(content: string | null | undefined): T | null {
-  if (!content) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(content) as T;
-  } catch {
-    return null;
-  }
 }
